@@ -1,0 +1,155 @@
+# Hockeypuck Server Configuration
+# This configuration file controls the behavior of the Hockeypuck server
+# and all its plugins.
+
+[server]
+bind = ":11371"
+dataDir = "/var/lib/hockeypuck"
+
+[plugins]
+enabled = true
+directory = "./plugins"
+
+# Plugin-specific configurations
+[plugins.config."zero-trust-security"]
+enabled = true
+requireAuthentication = true
+maxRiskScore = 0.7
+sessionTimeout = "30m"
+reevaluationInterval = "5m"
+deviceFingerprintingLevel = "standard"
+auditLevel = "basic"
+auditLogPath = "./logs"
+publicPaths = [
+    "/pks/lookup",
+    "/pks/stats",
+    "/health",
+    "/metrics",
+    "/ratelimit/tarpit/status",
+    "/ratelimit/ml/status",
+    "/ratelimit/threatintel/status",
+]
+
+[plugins.config."ratelimit-geo"]
+enabled = false
+geoip_database_path = "/usr/share/GeoIP/GeoLite2-City.mmdb"
+impossible_travel_enabled = true
+max_travel_speed_kmh = 1000.0
+clustering_enabled = true
+cluster_radius_km = 50.0
+cluster_size_threshold = 5
+asn_analysis_enabled = true
+max_asns_per_ip = 3
+ban_duration = "1h"
+impossible_travel_ban = "6h"
+clustering_ban = "2h"
+asn_jumping_ban = "30m"
+
+[plugins.config."ratelimit-ml"]
+enabled = true
+model_path = "/etc/hkp-plugin-core/models/abuse_detection.model"
+confidence_threshold = 0.8
+batch_size = 100
+processing_interval = "5s"
+
+[plugins.config."ratelimit-tarpit"]
+enabled = true
+delay_base = "1s"
+delay_multiplier = 2.0
+max_delay = "30s"
+reset_interval = "1h"
+
+[plugins.config."ratelimit-threat-intel"]
+enabled = true
+updateInterval = "1h"
+cacheSize = 100000
+blockDuration = "24h"
+reputationThreshold = 0.3
+autoBlock = true
+shareThreatData = false
+
+# Define threat feeds with proper structure
+[[plugins.config."ratelimit-threat-intel".threatFeeds]]
+name = "AlienVault OTX"
+url = "https://reputation.alienvault.com/reputation.data"
+type = "ip"
+format = "txt"
+updateFreq = "1h"
+enabled = true
+
+[[plugins.config."ratelimit-threat-intel".threatFeeds]]
+name = "Abuse.ch Feodo Tracker"
+url = "https://feodotracker.abuse.ch/downloads/ipblocklist.txt"
+type = "ip"
+format = "txt"
+updateFreq = "2h"
+enabled = true
+
+[[plugins.config."ratelimit-threat-intel".threatFeeds]]
+name = "Malware Domain List"
+url = "https://www.malwaredomainlist.com/hostslist/ip.txt"
+type = "ip"
+format = "txt"
+updateFreq = "6h"
+enabled = true
+
+[plugins.config."antiabuse"]
+enabled = true
+max_keys_per_ip = 100
+time_window = "1h"
+ban_duration = "24h"
+whitelist_domains = [
+    "example.org",
+    "trusted-domain.com"
+]
+
+# Core rate limiting configuration
+[rateLimit]
+enabled = true
+maxConcurrentConnections = 80
+connectionRate = 9
+httpRequestRate = 100
+httpErrorRate = 20
+crawlerBlockDuration = "24h"
+trustProxyHeaders = true
+
+[rateLimit.backend]
+type = "memory"
+
+# Tor-specific rate limiting
+[rateLimit.tor]
+enabled = true
+maxRequestsPerConnection = 2
+maxConcurrentConnections = 1
+connectionRate = 1
+connectionRateWindow = "10s"
+banDuration = "24h"
+repeatOffenderBanDuration = "576h"
+exitNodeListURL = "https://www.dan.me.uk/torlist/?exit"
+updateInterval = "1h"
+cacheFilePath = "tor_exit_nodes.cache"
+globalRateLimit = true
+globalRequestRate = 1
+globalRateWindow = "10s"
+globalBanDuration = "1h"
+
+# HTTP headers configuration
+[rateLimit.headers]
+enabled = true
+torHeader = "X-Tor-Exit"
+banHeader = "X-RateLimit-Ban"
+
+# IP whitelist configuration
+[rateLimit.whitelist]
+ips = [
+    "127.0.0.1",
+    "::1",
+    "10.0.0.0/8",
+    "172.16.0.0/12",
+    "192.168.0.0/16"
+]
+
+# Logging configuration
+[logging]
+level = "debug"
+format = "json"
