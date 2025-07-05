@@ -9,6 +9,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/julienschmidt/httprouter"
+
 	"github.com/dobrevit/hkp-plugin-core/pkg/config"
 	"github.com/dobrevit/hkp-plugin-core/pkg/events"
 	"github.com/dobrevit/hkp-plugin-core/pkg/hkpstorage"
@@ -54,7 +56,7 @@ func (p *MockPlugin) Shutdown(ctx context.Context) error {
 // MockPluginHost implements the PluginHost interface for testing
 type MockPluginHost struct {
 	middlewares map[string]func(http.Handler) http.Handler
-	handlers    map[string]http.HandlerFunc
+	handlers    map[string]httprouter.Handle
 	tasks       map[string]func(context.Context) error
 	events      []events.PluginEvent
 	subscribers map[string][]events.PluginEventHandler
@@ -64,7 +66,7 @@ type MockPluginHost struct {
 func NewMockPluginHost() *MockPluginHost {
 	return &MockPluginHost{
 		middlewares: make(map[string]func(http.Handler) http.Handler),
-		handlers:    make(map[string]http.HandlerFunc),
+		handlers:    make(map[string]httprouter.Handle),
 		tasks:       make(map[string]func(context.Context) error),
 		events:      make([]events.PluginEvent, 0),
 		subscribers: make(map[string][]events.PluginEventHandler),
@@ -78,7 +80,7 @@ func (h *MockPluginHost) RegisterMiddleware(path string, middleware func(http.Ha
 	return nil
 }
 
-func (h *MockPluginHost) RegisterHandler(pattern string, handler http.HandlerFunc) error {
+func (h *MockPluginHost) RegisterHandler(pattern string, handler httprouter.Handle) error {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.handlers[pattern] = handler

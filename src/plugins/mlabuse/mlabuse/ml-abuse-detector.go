@@ -313,9 +313,9 @@ func (p *MLAbusePlugin) CreateMiddleware() (func(http.Handler) http.Handler, err
 
 // RegisterHandlers registers the plugin's HTTP handlers
 func (p *MLAbusePlugin) RegisterHandlers(host plugin.PluginHost) error {
-	host.RegisterHandler("/api/ml/status", p.handleStatus)
-	host.RegisterHandler("/api/ml/metrics", p.handleMetrics)
-	host.RegisterHandler("/api/ml/analyze", p.handleAnalyze)
+	host.RegisterHandler("/api/ml/status", plugin.WrapStandardHandler(p.handleStatus))
+	host.RegisterHandler("/api/ml/metrics", plugin.WrapStandardHandler(p.handleMetrics))
+	host.RegisterHandler("/api/ml/analyze", plugin.WrapStandardHandler(p.handleAnalyze))
 	return nil
 }
 

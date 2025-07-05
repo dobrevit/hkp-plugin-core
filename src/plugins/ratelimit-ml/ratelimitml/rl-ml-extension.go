@@ -163,8 +163,8 @@ func (p *RateLimitMLPlugin) Initialize(ctx context.Context, host plugin.PluginHo
 	}
 
 	// Register endpoints
-	host.RegisterHandler("/ratelimit/ml/status", p.handleStatus)
-	host.RegisterHandler("/ratelimit/ml/patterns", p.handlePatterns)
+	host.RegisterHandler("/ratelimit/ml/status", plugin.WrapStandardHandler(p.handleStatus))
+	host.RegisterHandler("/ratelimit/ml/patterns", plugin.WrapStandardHandler(p.handlePatterns))
 
 	// Start background tasks
 	p.shutdownWg.Add(3)

@@ -161,9 +161,9 @@ func (p *ThreatIntelPlugin) Initialize(ctx context.Context, host plugin.PluginHo
 	}
 
 	// Register endpoints
-	host.RegisterHandler("/ratelimit/threatintel/status", p.handleStatus)
-	host.RegisterHandler("/ratelimit/threatintel/check", p.handleCheck)
-	host.RegisterHandler("/ratelimit/threatintel/report", p.handleReport)
+	host.RegisterHandler("/ratelimit/threatintel/status", plugin.WrapStandardHandler(p.handleStatus))
+	host.RegisterHandler("/ratelimit/threatintel/check", plugin.WrapStandardHandler(p.handleCheck))
+	host.RegisterHandler("/ratelimit/threatintel/report", plugin.WrapStandardHandler(p.handleReport))
 
 	// Start background tasks
 	host.Logger().Debug("Starting background tasks for ThreatIntelPlugin")

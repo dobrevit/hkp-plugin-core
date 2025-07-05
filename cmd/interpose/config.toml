@@ -9,6 +9,16 @@ dataDir = "/var/lib/hockeypuck"
 [plugins]
 enabled = true
 directory = "./plugins"
+# loadOrder is optional - if not specified, plugins will be auto-discovered from .so files
+# loadOrder = [
+#     "antiabuse",
+#     "ratelimit-geo", 
+#     "ratelimit-ml",
+#     "ratelimit-tarpit",
+#     "ratelimit-threat",
+#     "mlabuse",
+#     "zerotrust"
+# ]
 
 # Plugin-specific configurations
 [plugins.config."zero-trust-security"]

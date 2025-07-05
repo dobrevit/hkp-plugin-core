@@ -4,8 +4,10 @@ package integration
 import (
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
 	"plugin"
+	"strings"
 
 	log "github.com/sirupsen/logrus"
 
@@ -108,8 +110,30 @@ func InitializePlugins(ctx context.Context, host pluginapi.PluginHost, settings 
 // loadPlugins loads all configured plugins
 func (ps *PluginSystem) loadPlugins(ctx context.Context, settings *config.Settings) error {
 	pluginDir := settings.Plugins.Directory
+	
+	// Get the list of plugins to load
+	pluginsToLoad := settings.Plugins.LoadOrder
+	
+	// If no plugins specified in loadOrder, auto-discover .so files
+	if len(pluginsToLoad) == 0 {
+		discoveredPlugins, err := ps.discoverPlugins(pluginDir)
+		if err != nil {
+			ps.logger.WithFields(log.Fields{
+				"directory": pluginDir,
+				"error":     err,
+			}).Warn("Failed to auto-discover plugins, continuing with empty list")
+		} else {
+			pluginsToLoad = discoveredPlugins
+			ps.logger.WithFields(log.Fields{
+				"directory": pluginDir,
+				"count":     len(pluginsToLoad),
+				"plugins":   pluginsToLoad,
+			}).Info("Auto-discovered plugins")
+		}
+	}
 
-	for _, pluginName := range settings.Plugins.LoadOrder {
+	// Load each plugin
+	for _, pluginName := range pluginsToLoad {
 		if err := ps.loadPlugin(ctx, pluginDir, pluginName, settings); err != nil {
 			ps.logger.WithFields(log.Fields{
 				"plugin": pluginName,
@@ -122,6 +146,39 @@ func (ps *PluginSystem) loadPlugins(ctx context.Context, settings *config.Settin
 	}
 
 	return nil
+}
+
+// discoverPlugins automatically discovers .so files in the plugin directory
+func (ps *PluginSystem) discoverPlugins(pluginDir string) ([]string, error) {
+	// Check if directory exists
+	if _, err := os.Stat(pluginDir); os.IsNotExist(err) {
+		return nil, fmt.Errorf("plugin directory %s does not exist", pluginDir)
+	}
+	
+	// Find all .so files
+	pattern := filepath.Join(pluginDir, "*.so")
+	matches, err := filepath.Glob(pattern)
+	if err != nil {
+		return nil, fmt.Errorf("failed to search for .so files: %w", err)
+	}
+	
+	// Extract plugin names from file paths
+	var pluginNames []string
+	for _, match := range matches {
+		// Get filename without directory and extension
+		filename := filepath.Base(match)
+		pluginName := strings.TrimSuffix(filename, ".so")
+		pluginNames = append(pluginNames, pluginName)
+	}
+	
+	ps.logger.WithFields(log.Fields{
+		"directory": pluginDir,
+		"pattern":   pattern,
+		"found":     len(pluginNames),
+		"plugins":   pluginNames,
+	}).Debug("Plugin discovery completed")
+	
+	return pluginNames, nil
 }
 
 // loadPlugin loads a single plugin

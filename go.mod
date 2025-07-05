@@ -23,6 +23,7 @@ require (
 	github.com/go-martini/martini v0.0.0-20170121215854-22fa46961aab // indirect
 	github.com/goods/httpbuf v0.0.0-20120503183857-5709e9bb814c // indirect
 	github.com/interpose/middleware v0.0.0-20150216143757-05ed56ed52fa // indirect
+	github.com/julienschmidt/httprouter v1.3.0 // indirect
 	github.com/justinas/nosurf v1.2.0 // indirect
 	github.com/meatballhat/negroni-logrus v1.1.1 // indirect
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect

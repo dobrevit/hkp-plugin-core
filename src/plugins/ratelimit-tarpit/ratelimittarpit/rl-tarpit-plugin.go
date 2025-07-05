@@ -126,12 +126,12 @@ func (p *TarpitPlugin) Initialize(ctx context.Context, host plugin.PluginHost, c
 
 	// Register honeypot paths
 	for _, path := range p.config.HoneypotPaths {
-		host.RegisterHandler(path, p.handleHoneypot)
+		host.RegisterHandler(path, plugin.WrapStandardHandler(p.handleHoneypot))
 	}
 
 	// Register management endpoints
-	host.RegisterHandler("/ratelimit/tarpit/status", p.handleStatus)
-	host.RegisterHandler("/ratelimit/tarpit/connections", p.handleConnections)
+	host.RegisterHandler("/ratelimit/tarpit/status", plugin.WrapStandardHandler(p.handleStatus))
+	host.RegisterHandler("/ratelimit/tarpit/connections", plugin.WrapStandardHandler(p.handleConnections))
 
 	// Start background tasks
 	p.shutdownWg.Add(2)

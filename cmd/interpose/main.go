@@ -9,13 +9,12 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	"path/filepath"
-	"plugin"
 	"sync"
 	"syscall"
 	"time"
 
 	"github.com/BurntSushi/toml"
+	"github.com/julienschmidt/httprouter"
 	log "github.com/sirupsen/logrus"
 
 	"github.com/dobrevit/hkp-plugin-core/pkg/config"
@@ -24,7 +23,6 @@ import (
 	"github.com/dobrevit/hkp-plugin-core/pkg/integration"
 	"github.com/dobrevit/hkp-plugin-core/pkg/management"
 	"github.com/dobrevit/hkp-plugin-core/pkg/metrics"
-	pluginapi "github.com/dobrevit/hkp-plugin-core/pkg/plugin"
 )
 
 // HockeypuckConfig represents a minimal Hockeypuck-style configuration
@@ -58,6 +56,7 @@ type Server struct {
 	httpServer    *http.Server
 	storage       hkpstorage.Storage
 	metrics       *metrics.Metrics
+	pluginHost    *ServerPluginHost
 	pluginSystem  *integration.PluginSystem
 	pluginManager *management.PluginManager
 	startTime     time.Time
@@ -68,7 +67,7 @@ type Server struct {
 type ServerPluginHost struct {
 	server      *Server
 	middlewares []func(http.Handler) http.Handler
-	handlers    map[string]http.HandlerFunc
+	handlers    map[string]httprouter.Handle
 	tasks       map[string]TaskInfo
 	mu          sync.RWMutex
 }
@@ -85,7 +84,7 @@ func NewServerPluginHost(server *Server) *ServerPluginHost {
 	return &ServerPluginHost{
 		server:      server,
 		middlewares: make([]func(http.Handler) http.Handler, 0),
-		handlers:    make(map[string]http.HandlerFunc),
+		handlers:    make(map[string]httprouter.Handle),
 		tasks:       make(map[string]TaskInfo),
 	}
 }
@@ -103,7 +102,7 @@ func (ph *ServerPluginHost) RegisterMiddleware(path string, middleware func(http
 	return nil
 }
 
-func (ph *ServerPluginHost) RegisterHandler(pattern string, handler http.HandlerFunc) error {
+func (ph *ServerPluginHost) RegisterHandler(pattern string, handler httprouter.Handle) error {
 	ph.mu.Lock()
 	defer ph.mu.Unlock()
 
@@ -175,8 +174,24 @@ func (ph *ServerPluginHost) runTask(ctx context.Context, name string, interval t
 	}
 }
 
+// ShutdownTasks cancels all registered plugin tasks
+func (ph *ServerPluginHost) ShutdownTasks() {
+	ph.mu.Lock()
+	defer ph.mu.Unlock()
+	
+	ph.server.logger.WithField("task_count", len(ph.tasks)).Info("Shutting down plugin tasks")
+	
+	for name, taskInfo := range ph.tasks {
+		ph.server.logger.WithField("task", name).Debug("Cancelling plugin task")
+		taskInfo.Cancel()
+	}
+	
+	// Clear the tasks map
+	ph.tasks = make(map[string]TaskInfo)
+}
+
 // Event system methods - delegated to plugin system's event bus
-func (ph *ServerPluginHost) PublishEvent(event pluginapi.PluginEvent) error {
+func (ph *ServerPluginHost) PublishEvent(event events.PluginEvent) error {
 	if ph.server.pluginSystem != nil {
 		if eventBus := ph.server.pluginSystem.GetEventBus(); eventBus != nil {
 			return eventBus.PublishEvent(event)
@@ -185,7 +200,7 @@ func (ph *ServerPluginHost) PublishEvent(event pluginapi.PluginEvent) error {
 	return nil
 }
 
-func (ph *ServerPluginHost) SubscribeEvent(eventType string, handler pluginapi.PluginEventHandler) error {
+func (ph *ServerPluginHost) SubscribeEvent(eventType string, handler events.PluginEventHandler) error {
 	if ph.server.pluginSystem != nil {
 		if eventBus := ph.server.pluginSystem.GetEventBus(); eventBus != nil {
 			return eventBus.SubscribeEvent(eventType, handler)
@@ -205,8 +220,8 @@ func (ph *ServerPluginHost) SubscribeKeyChanges(callback func(hkpstorage.KeyChan
 
 // Convenience methods for common events
 func (ph *ServerPluginHost) PublishThreatDetected(threat events.ThreatInfo) error {
-	return ph.PublishEvent(pluginapi.PluginEvent{
-		Type:      pluginapi.EventSecurityThreatDetected,
+	return ph.PublishEvent(events.PluginEvent{
+		Type:      events.EventSecurityThreatDetected,
 		Source:    "server",
 		Timestamp: time.Now(),
 		Data:      map[string]interface{}{"threat": threat},
@@ -214,8 +229,8 @@ func (ph *ServerPluginHost) PublishThreatDetected(threat events.ThreatInfo) erro
 }
 
 func (ph *ServerPluginHost) PublishRateLimitViolation(violation events.RateLimitViolation) error {
-	return ph.PublishEvent(pluginapi.PluginEvent{
-		Type:      "rate_limit_violation",
+	return ph.PublishEvent(events.PluginEvent{
+		Type:      events.EventRateLimitViolation,
 		Source:    "server",
 		Timestamp: time.Now(),
 		Data:      map[string]interface{}{"violation": violation},
@@ -223,7 +238,7 @@ func (ph *ServerPluginHost) PublishRateLimitViolation(violation events.RateLimit
 }
 
 func (ph *ServerPluginHost) PublishZTNAEvent(eventType string, ztnaEvent events.ZTNAEvent) error {
-	return ph.PublishEvent(pluginapi.PluginEvent{
+	return ph.PublishEvent(events.PluginEvent{
 		Type:      eventType,
 		Source:    "ztna",
 		Timestamp: time.Now(),
@@ -314,12 +329,10 @@ func (s *Server) Initialize() error {
 	if s.config.Plugins.Enabled {
 		ctx := context.Background()
 		host := NewServerPluginHost(s)
+		s.pluginHost = host  // Store the plugin host
 
 		// Convert to plugin settings
 		settings := host.Config()
-
-		// Initialize plugin manager
-		s.pluginManager = management.NewPluginManager(host, settings, s.logger)
 
 		// Initialize plugin system using the new integration package
 		pluginSystem, err := integration.InitializePlugins(ctx, host, settings)
@@ -329,7 +342,13 @@ func (s *Server) Initialize() error {
 		}
 
 		s.pluginSystem = pluginSystem
-		s.pluginManager.SetPluginSystem(pluginSystem)
+
+		// Create HTTP management layer for the plugin system
+		s.pluginManager, err = management.NewPluginManager(pluginSystem, settings, s.logger)
+		if err != nil {
+			s.logger.WithError(err).Error("Failed to initialize plugin HTTP management")
+			return err
+		}
 		s.logger.WithField("plugins", len(pluginSystem.ListPlugins())).Info("Plugin system initialized")
 	}
 
@@ -376,10 +395,20 @@ func (s *Server) createHandler() http.Handler {
 	mux.HandleFunc("/plugins/config", s.handlePluginConfig)
 
 	// Register plugin handlers if plugin system is active
-	if s.pluginSystem != nil {
-		// This is a simplified way to get plugin handlers
-		// In a real implementation, you'd have a proper way to access them
-		s.logger.Debug("Plugin handlers would be registered here")
+	if s.pluginHost != nil {
+		s.pluginHost.mu.RLock()
+		handlerCount := len(s.pluginHost.handlers)
+		for pattern, handler := range s.pluginHost.handlers {
+			// Convert httprouter.Handle to http.HandlerFunc
+			// Use closure to capture handler value properly
+			func(h httprouter.Handle) {
+				mux.HandleFunc(pattern, func(w http.ResponseWriter, r *http.Request) {
+					h(w, r, nil) // httprouter.Params is nil for standard mux
+				})
+			}(handler)
+		}
+		s.pluginHost.mu.RUnlock()
+		s.logger.WithField("handler_count", handlerCount).Debug("Plugin handlers registered with HTTP mux")
 	}
 
 	// Build middleware chain
@@ -450,7 +479,7 @@ func (s *Server) handlePluginsStatus(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Plugin management not initialized", http.StatusServiceUnavailable)
 		return
 	}
-	s.pluginManager.StatusHandler(w, r)
+	s.pluginManager.HandleStatus(w, r, nil)
 }
 
 func (s *Server) handlePluginsList(w http.ResponseWriter, r *http.Request) {
@@ -458,7 +487,7 @@ func (s *Server) handlePluginsList(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Plugin management not initialized", http.StatusServiceUnavailable)
 		return
 	}
-	s.pluginManager.ListHandler(w, r)
+	s.pluginManager.HandleList(w, r, nil)
 }
 
 func (s *Server) handlePluginsHealth(w http.ResponseWriter, r *http.Request) {
@@ -466,7 +495,7 @@ func (s *Server) handlePluginsHealth(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Plugin management not initialized", http.StatusServiceUnavailable)
 		return
 	}
-	s.pluginManager.HealthHandler(w, r)
+	s.pluginManager.HandleHealth(w, r, nil)
 }
 
 func (s *Server) handlePluginReload(w http.ResponseWriter, r *http.Request) {
@@ -474,7 +503,7 @@ func (s *Server) handlePluginReload(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Plugin management not initialized", http.StatusServiceUnavailable)
 		return
 	}
-	s.pluginManager.ReloadHandler(w, r)
+	s.pluginManager.HandleReload(w, r, nil)
 }
 
 func (s *Server) handlePluginConfig(w http.ResponseWriter, r *http.Request) {
@@ -482,7 +511,11 @@ func (s *Server) handlePluginConfig(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Plugin management not initialized", http.StatusServiceUnavailable)
 		return
 	}
-	s.pluginManager.ConfigHandler(w, r)
+	if r.Method == "PUT" {
+		s.pluginManager.HandleConfigUpdate(w, r, nil)
+	} else {
+		s.pluginManager.HandleConfig(w, r, nil)
+	}
 }
 
 // Middleware implementations
@@ -557,68 +590,20 @@ func (s *Server) Stop() error {
 		}
 	}
 
+	// Shutdown plugin tasks first
+	if s.pluginHost != nil {
+		s.pluginHost.ShutdownTasks()
+	}
+
 	// Shutdown plugin system
 	if s.pluginSystem != nil {
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		// Reduced timeout since we've already cancelled tasks
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		if err := s.pluginSystem.Shutdown(ctx); err != nil {
-			s.logger.WithError(err).Error("Error shutting down plugin system")
+			s.logger.WithError(err).Warn("Some plugins did not shutdown gracefully within timeout")
 		}
 	}
-
-	return nil
-}
-
-// loadDynamicPlugins loads plugins from .so files (similar to the integration example)
-func (s *Server) loadDynamicPlugins(pluginDir string) error {
-	if _, err := os.Stat(pluginDir); os.IsNotExist(err) {
-		s.logger.WithField("dir", pluginDir).Info("Plugin directory does not exist")
-		return nil
-	}
-
-	pattern := filepath.Join(pluginDir, "*.so")
-	pluginFiles, err := filepath.Glob(pattern)
-	if err != nil {
-		return fmt.Errorf("failed to search for plugin files: %w", err)
-	}
-
-	for _, pluginFile := range pluginFiles {
-		if err := s.loadPlugin(pluginFile); err != nil {
-			s.logger.WithFields(log.Fields{
-				"file":  pluginFile,
-				"error": err,
-			}).Error("Failed to load plugin")
-			continue
-		}
-		s.logger.WithField("file", pluginFile).Info("Plugin loaded successfully")
-	}
-
-	return nil
-}
-
-func (s *Server) loadPlugin(pluginFile string) error {
-	p, err := plugin.Open(pluginFile)
-	if err != nil {
-		return fmt.Errorf("failed to open plugin file: %w", err)
-	}
-
-	getPluginSym, err := p.Lookup("GetPlugin")
-	if err != nil {
-		return fmt.Errorf("plugin missing GetPlugin function: %w", err)
-	}
-
-	getPlugin, ok := getPluginSym.(func() pluginapi.Plugin)
-	if !ok {
-		return fmt.Errorf("GetPlugin function has wrong signature")
-	}
-
-	pluginInstance := getPlugin()
-	if pluginInstance == nil {
-		return fmt.Errorf("GetPlugin returned nil")
-	}
-
-	// Plugin would be registered with the plugin system here
-	s.logger.WithField("plugin", pluginInstance.Name()).Info("Plugin discovered")
 
 	return nil
 }

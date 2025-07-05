@@ -110,14 +110,14 @@ func (p *ZeroTrustPlugin) Initialize(ctx context.Context, host plugin.PluginHost
 		return fmt.Errorf("failed to register middleware: %w", err)
 	}
 
-	// Register handlers
-	host.RegisterHandler("/ztna/login", p.handleLogin)
-	host.RegisterHandler("/ztna/logout", p.handleLogout)
-	host.RegisterHandler("/ztna/verify", p.handleVerification)
-	host.RegisterHandler("/ztna/device", p.handleDeviceRegistration)
-	host.RegisterHandler("/ztna/status", p.handleZTNAStatus)
-	host.RegisterHandler("/ztna/sessions", p.handleSessions)
-	host.RegisterHandler("/ztna/policies", p.handlePolicies)
+	// Register handlers using the adapter for httprouter compatibility
+	host.RegisterHandler("/ztna/login", plugin.WrapStandardHandler(p.handleLogin))
+	host.RegisterHandler("/ztna/logout", plugin.WrapStandardHandler(p.handleLogout))
+	host.RegisterHandler("/ztna/verify", plugin.WrapStandardHandler(p.handleVerification))
+	host.RegisterHandler("/ztna/device", plugin.WrapStandardHandler(p.handleDeviceRegistration))
+	host.RegisterHandler("/ztna/status", plugin.WrapStandardHandler(p.handleZTNAStatus))
+	host.RegisterHandler("/ztna/sessions", plugin.WrapStandardHandler(p.handleSessions))
+	host.RegisterHandler("/ztna/policies", plugin.WrapStandardHandler(p.handlePolicies))
 
 	// Subscribe to security events
 	host.SubscribeEvent("security.threat.detected", p.handleThreatEvent)
