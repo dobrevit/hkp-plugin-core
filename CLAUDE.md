@@ -4,13 +4,15 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Architecture
 
-This is the HKP Plugin System - a comprehensive, modular security and operational framework for Hockeypuck OpenPGP key servers. The system implements a sophisticated plugin architecture with event-driven communication, hot-reload capabilities, and advanced security features.
+This is the HKP Plugin System - a comprehensive, modular security and operational framework for Hockeypuck OpenPGP key servers. The system implements a sophisticated plugin architecture with Hockeypuck-compatible interfaces, event-driven communication, hot-reload capabilities, and advanced security features.
 
 ### Core Components
 
 - **Plugin Framework**: Uses Go's plugin architecture (`.so` files) for hot-pluggable modules
-- **Event System**: Plugins communicate through publish-subscribe event system
-- **Middleware Chain**: HTTP middleware integration using `github.com/carbocation/interpose`
+- **Event System**: Hybrid system bridging Hockeypuck's KeyChange notifications with flexible plugin events
+- **Middleware Chain**: HTTP middleware integration compatible with `github.com/carbocation/interpose`
+- **Storage Interface**: Compatible with Hockeypuck's storage patterns without copying AGPL code
+- **Configuration**: Matches Hockeypuck's TOML structure and template system
 - **Resource Management**: Proper lifecycle management using `gopkg.in/tomb.v2`
 
 ### Plugin Categories
@@ -22,7 +24,11 @@ This is the HKP Plugin System - a comprehensive, modular security and operationa
 ### Key Architecture Files
 
 - `main.go`: Example server implementation with plugin integration
-- `pkg/plugin/`: Core plugin interfaces and management
+- `pkg/plugin/`: Core plugin interfaces and management (Hockeypuck-compatible)
+- `pkg/hkpstorage/`: Hockeypuck-compatible storage interfaces
+- `pkg/events/`: Event system bridging Hockeypuck and plugin patterns
+- `pkg/config/`: Hockeypuck-compatible configuration structures
+- `pkg/middleware/`: Interpose-compatible middleware chain management
 - `pkg/ratelimit/`: Rate limiting backend implementations
 - `src/plugins/`: Individual plugin implementations
 - `cmd/interpose/`: Main application entry point
@@ -85,13 +91,21 @@ make run
 ## Plugin Development
 
 ### Plugin Interface
-All plugins must implement the `plugin.Plugin` interface:
+All plugins must implement the `plugin.Plugin` interface (Hockeypuck-compatible):
 - `Initialize(ctx, host, config) error`
 - `Name() string`
 - `Version() string`
 - `Description() string`
 - `Dependencies() []PluginDependency`
 - `Shutdown(ctx) error`
+
+### Plugin Host Interface (Hockeypuck-compatible)
+- `Storage() hkpstorage.Storage` - Access Hockeypuck storage
+- `Config() *config.Settings` - Access Hockeypuck-style configuration
+- `Logger() *logrus.Logger` - Use logrus (same as Hockeypuck)
+- `PublishEvent(events.PluginEvent) error` - Generic event publishing
+- `SubscribeKeyChanges(func(KeyChange) error) error` - Hockeypuck-style notifications
+- `PublishThreatDetected(events.ThreatInfo) error` - Security event convenience method
 
 ### Plugin Loading Order
 Critical: Plugins must be loaded in dependency order:
@@ -116,12 +130,53 @@ host.PublishEvent(plugin.PluginEvent{
 })
 ```
 
+### Plugin Lifecycle Management 🔥
+
+The `/pkg/management/` package provides production-ready plugin lifecycle management:
+
+**Key Features:**
+- **Hot Reload**: Graceful plugin reloading with request draining
+- **Health Monitoring**: Real-time plugin health checks
+- **Configuration Management**: Dynamic config updates
+- **HTTP Endpoints**: Ready-to-use management API
+- **Request Draining**: Zero-downtime plugin transitions
+- **Rollback Support**: Automatic rollback on failures
+
+**HTTP Endpoints for Hockeypuck:**
+- `GET /plugins/status` - System status and plugin states
+- `GET /plugins/list` - Detailed plugin information
+- `GET /plugins/health` - Health checks for all plugins
+- `POST /plugins/reload?plugin=<name>` - Hot reload specific plugin
+- `GET/PUT /plugins/config?plugin=<name>` - Config management
+
+**Integration Example:**
+```go
+// In Hockeypuck's server initialization
+pluginManager := management.NewPluginManager(host, settings, logger)
+pluginSystem, _ := integration.InitializePlugins(ctx, host, settings)
+pluginManager.SetPluginSystem(pluginSystem)
+
+// Register HTTP endpoints
+mux.HandleFunc("/plugins/status", pluginManager.StatusHandler)
+mux.HandleFunc("/plugins/reload", pluginManager.ReloadHandler)
+// ... other endpoints
+```
+
+This enables zero-downtime plugin updates and comprehensive monitoring for production Hockeypuck deployments!
+
 ## Project Structure
 
 ```
 ├── cmd/interpose/          # Main application
 ├── pkg/                    # Core packages
-│   ├── plugin/             # Plugin management
+│   ├── config/             # AGPL-compliant configuration
+│   ├── events/             # Event system (Hockeypuck bridge)
+│   ├── hkpstorage/         # Clean-room storage interfaces
+│   ├── integration/        # Simple Hockeypuck integration
+│   ├── management/         # Plugin lifecycle management ⭐
+│   ├── metrics/            # Prometheus metrics
+│   ├── middleware/         # Interpose-compatible middleware
+│   ├── plugin/             # Plugin management core
 │   ├── ratelimit/          # Rate limiting backends
 │   ├── recovery/           # Circuit breakers and recovery
 │   ├── resources/          # Resource monitoring

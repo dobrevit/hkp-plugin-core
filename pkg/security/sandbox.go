@@ -27,19 +27,19 @@ type SandboxManager struct {
 
 // SandboxConfig contains sandboxing configuration
 type SandboxConfig struct {
-	EnableCGroups       bool     `json:"enable_cgroups"`
-	EnableSeccomp       bool     `json:"enable_seccomp"`
-	CGroupRoot          string   `json:"cgroup_root"`
-	MaxMemoryMB         int64    `json:"max_memory_mb"`
-	MaxCPUPercent       float64  `json:"max_cpu_percent"`
-	MaxProcesses        int64    `json:"max_processes"`
-	AllowedSyscalls     []string `json:"allowed_syscalls"`
-	BlockedSyscalls     []string `json:"blocked_syscalls"`
-	NetworkIsolation    bool     `json:"network_isolation"`
-	FilesystemReadOnly  bool     `json:"filesystem_readonly"`
-	TempDirPath         string   `json:"temp_dir_path"`
-	AllowedDirectories  []string `json:"allowed_directories"`
-	DeniedDirectories   []string `json:"denied_directories"`
+	EnableCGroups      bool     `json:"enable_cgroups"`
+	EnableSeccomp      bool     `json:"enable_seccomp"`
+	CGroupRoot         string   `json:"cgroup_root"`
+	MaxMemoryMB        int64    `json:"max_memory_mb"`
+	MaxCPUPercent      float64  `json:"max_cpu_percent"`
+	MaxProcesses       int64    `json:"max_processes"`
+	AllowedSyscalls    []string `json:"allowed_syscalls"`
+	BlockedSyscalls    []string `json:"blocked_syscalls"`
+	NetworkIsolation   bool     `json:"network_isolation"`
+	FilesystemReadOnly bool     `json:"filesystem_readonly"`
+	TempDirPath        string   `json:"temp_dir_path"`
+	AllowedDirectories []string `json:"allowed_directories"`
+	DeniedDirectories  []string `json:"denied_directories"`
 }
 
 // CGroup represents a control group for resource management
@@ -55,10 +55,10 @@ type CGroup struct {
 
 // SeccompProfile defines syscall filtering rules
 type SeccompProfile struct {
-	DefaultAction string            `json:"default_action"`
-	Syscalls      []SyscallRule     `json:"syscalls"`
-	Architectures []string          `json:"architectures"`
-	Flags         []string          `json:"flags"`
+	DefaultAction string        `json:"default_action"`
+	Syscalls      []SyscallRule `json:"syscalls"`
+	Architectures []string      `json:"architectures"`
+	Flags         []string      `json:"flags"`
 }
 
 // SyscallRule defines rules for individual syscalls
@@ -78,7 +78,7 @@ type SyscallArgument struct {
 
 // SandboxedProcess represents a process running in a sandbox
 type SandboxedProcess struct {
-	PID       int
+	PID        int
 	PluginName string
 	CGroupPath string
 	StartTime  time.Time
@@ -163,11 +163,11 @@ func (sm *SandboxManager) CreateSandbox(pluginName string) (*SandboxedProcess, e
 
 	// Log sandbox creation
 	sm.auditLogger.LogSecurityEvent("sandbox_created", map[string]interface{}{
-		"plugin_name":    pluginName,
-		"cgroup_enabled": sm.config.EnableCGroups,
+		"plugin_name":     pluginName,
+		"cgroup_enabled":  sm.config.EnableCGroups,
 		"seccomp_enabled": sm.config.EnableSeccomp,
-		"memory_limit":   sm.config.MaxMemoryMB,
-		"cpu_limit":      sm.config.MaxCPUPercent,
+		"memory_limit":    sm.config.MaxMemoryMB,
+		"cpu_limit":       sm.config.MaxCPUPercent,
 	})
 
 	return sandbox, nil
@@ -445,13 +445,13 @@ func (sm *SandboxManager) GetSandboxStatus() map[string]interface{} {
 	defer sm.mutex.RUnlock()
 
 	status := map[string]interface{}{
-		"active_cgroups":     len(sm.cgroups),
-		"cgroup_enabled":     sm.config.EnableCGroups,
-		"seccomp_enabled":    sm.config.EnableSeccomp,
-		"memory_limit_mb":    sm.config.MaxMemoryMB,
-		"cpu_limit_percent":  sm.config.MaxCPUPercent,
-		"max_processes":      sm.config.MaxProcesses,
-		"network_isolation":  sm.config.NetworkIsolation,
+		"active_cgroups":      len(sm.cgroups),
+		"cgroup_enabled":      sm.config.EnableCGroups,
+		"seccomp_enabled":     sm.config.EnableSeccomp,
+		"memory_limit_mb":     sm.config.MaxMemoryMB,
+		"cpu_limit_percent":   sm.config.MaxCPUPercent,
+		"max_processes":       sm.config.MaxProcesses,
+		"network_isolation":   sm.config.NetworkIsolation,
 		"filesystem_readonly": sm.config.FilesystemReadOnly,
 	}
 
@@ -459,12 +459,12 @@ func (sm *SandboxManager) GetSandboxStatus() map[string]interface{} {
 	plugins := make(map[string]interface{})
 	for pluginName, cgroup := range sm.cgroups {
 		plugins[pluginName] = map[string]interface{}{
-			"cgroup_name":   cgroup.Name,
-			"memory_limit":  cgroup.MemoryLimit,
-			"cpu_limit":     cgroup.CPULimit,
-			"pid_limit":     cgroup.PIDLimit,
-			"created_at":    cgroup.CreatedAt,
-			"active":        cgroup.Active,
+			"cgroup_name":  cgroup.Name,
+			"memory_limit": cgroup.MemoryLimit,
+			"cpu_limit":    cgroup.CPULimit,
+			"pid_limit":    cgroup.PIDLimit,
+			"created_at":   cgroup.CreatedAt,
+			"active":       cgroup.Active,
 		}
 	}
 	status["plugins"] = plugins
@@ -513,7 +513,7 @@ func (sm *SandboxManager) checkSandboxHealth() {
 		}
 
 		// Log resource usage
-		sm.logger.Debug("Sandbox resource usage", 
+		sm.logger.Debug("Sandbox resource usage",
 			"plugin", pluginName,
 			"memory_bytes", memoryUsage,
 			"memory_limit", cgroup.MemoryLimit,
@@ -540,18 +540,18 @@ func (sm *SandboxManager) getCGroupMemoryUsage(cgroup *CGroup) (int64, error) {
 // DefaultSandboxConfig returns a default sandbox configuration
 func DefaultSandboxConfig() *SandboxConfig {
 	return &SandboxConfig{
-		EnableCGroups:       true,
-		EnableSeccomp:       true,
-		CGroupRoot:          "/sys/fs/cgroup",
-		MaxMemoryMB:         512,
-		MaxCPUPercent:       25.0,
-		MaxProcesses:        100,
-		AllowedSyscalls:     []string{}, // Use default list
-		BlockedSyscalls:     []string{"ptrace", "kexec_load", "init_module", "delete_module"},
-		NetworkIsolation:    false,
-		FilesystemReadOnly:  false,
-		TempDirPath:         "/tmp/hkp-plugins",
-		AllowedDirectories:  []string{"/tmp", "/var/tmp"},
-		DeniedDirectories:   []string{"/etc", "/boot", "/sys", "/proc"},
+		EnableCGroups:      true,
+		EnableSeccomp:      true,
+		CGroupRoot:         "/sys/fs/cgroup",
+		MaxMemoryMB:        512,
+		MaxCPUPercent:      25.0,
+		MaxProcesses:       100,
+		AllowedSyscalls:    []string{}, // Use default list
+		BlockedSyscalls:    []string{"ptrace", "kexec_load", "init_module", "delete_module"},
+		NetworkIsolation:   false,
+		FilesystemReadOnly: false,
+		TempDirPath:        "/tmp/hkp-plugins",
+		AllowedDirectories: []string{"/tmp", "/var/tmp"},
+		DeniedDirectories:  []string{"/etc", "/boot", "/sys", "/proc"},
 	}
 }

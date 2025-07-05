@@ -3,16 +3,18 @@ package plugin_test
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"net/http"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
-	"github.com/dobrevit/hkp-plugin-core/internal/metrics"
+	"github.com/dobrevit/hkp-plugin-core/pkg/config"
+	"github.com/dobrevit/hkp-plugin-core/pkg/events"
+	"github.com/dobrevit/hkp-plugin-core/pkg/hkpstorage"
+	"github.com/dobrevit/hkp-plugin-core/pkg/metrics"
 	"github.com/dobrevit/hkp-plugin-core/pkg/plugin"
-	"github.com/dobrevit/hkp-plugin-core/pkg/storage"
+	log "github.com/sirupsen/logrus"
 )
 
 // MockPlugin implements the Plugin interface for testing
@@ -54,8 +56,8 @@ type MockPluginHost struct {
 	middlewares map[string]func(http.Handler) http.Handler
 	handlers    map[string]http.HandlerFunc
 	tasks       map[string]func(context.Context) error
-	events      []plugin.PluginEvent
-	subscribers map[string][]plugin.PluginEventHandler
+	events      []events.PluginEvent
+	subscribers map[string][]events.PluginEventHandler
 	mu          sync.RWMutex
 }
 
@@ -64,7 +66,8 @@ func NewMockPluginHost() *MockPluginHost {
 		middlewares: make(map[string]func(http.Handler) http.Handler),
 		handlers:    make(map[string]http.HandlerFunc),
 		tasks:       make(map[string]func(context.Context) error),
-		subscribers: make(map[string][]plugin.PluginEventHandler),
+		events:      make([]events.PluginEvent, 0),
+		subscribers: make(map[string][]events.PluginEventHandler),
 	}
 }
 
@@ -82,18 +85,20 @@ func (h *MockPluginHost) RegisterHandler(pattern string, handler http.HandlerFun
 	return nil
 }
 
-func (h *MockPluginHost) Storage() storage.Storage {
+func (h *MockPluginHost) Storage() hkpstorage.Storage {
 	return nil
 }
 
-func (h *MockPluginHost) Config() *plugin.Settings {
-	return &plugin.Settings{
-		Bind:    ":8080",
+func (h *MockPluginHost) Config() *config.Settings {
+	return &config.Settings{
 		DataDir: "/tmp/data",
+		Plugins: config.PluginConfig{
+			Enabled: true,
+		},
 	}
 }
 func (h *MockPluginHost) Metrics() *metrics.Metrics { return nil }
-func (h *MockPluginHost) Logger() *slog.Logger      { return nil }
+func (h *MockPluginHost) Logger() *log.Logger       { return log.StandardLogger() }
 
 func (h *MockPluginHost) RegisterTask(name string, interval time.Duration, task func(context.Context) error) error {
 	h.mu.Lock()
@@ -102,7 +107,7 @@ func (h *MockPluginHost) RegisterTask(name string, interval time.Duration, task 
 	return nil
 }
 
-func (h *MockPluginHost) PublishEvent(event plugin.PluginEvent) error {
+func (h *MockPluginHost) PublishEvent(event events.PluginEvent) error {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.events = append(h.events, event)
@@ -115,11 +120,40 @@ func (h *MockPluginHost) PublishEvent(event plugin.PluginEvent) error {
 	return nil
 }
 
-func (h *MockPluginHost) SubscribeEvent(eventType string, handler plugin.PluginEventHandler) error {
+func (h *MockPluginHost) SubscribeEvent(eventType string, handler events.PluginEventHandler) error {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.subscribers[eventType] = append(h.subscribers[eventType], handler)
 	return nil
+}
+
+func (h *MockPluginHost) SubscribeKeyChanges(callback func(hkpstorage.KeyChange) error) error {
+	// Mock implementation for testing
+	return nil
+}
+
+func (h *MockPluginHost) PublishThreatDetected(threat events.ThreatInfo) error {
+	return h.PublishEvent(events.PluginEvent{
+		Type:   events.EventSecurityThreatDetected,
+		Source: threat.Source,
+		Data:   map[string]interface{}{"threat": threat},
+	})
+}
+
+func (h *MockPluginHost) PublishRateLimitViolation(violation events.RateLimitViolation) error {
+	return h.PublishEvent(events.PluginEvent{
+		Type:   events.EventRateLimitViolation,
+		Source: violation.Source,
+		Data:   map[string]interface{}{"violation": violation},
+	})
+}
+
+func (h *MockPluginHost) PublishZTNAEvent(eventType string, ztnaEvent events.ZTNAEvent) error {
+	return h.PublishEvent(events.PluginEvent{
+		Type:   eventType,
+		Source: "ztna",
+		Data:   map[string]interface{}{"ztna": ztnaEvent},
+	})
 }
 
 // MockLogger implements the Logger interface for testing

@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/dobrevit/hkp-plugin-core/pkg/events"
 	"github.com/dobrevit/hkp-plugin-core/pkg/plugin"
 )
 
@@ -491,7 +492,7 @@ func (p *ZeroTrustPlugin) handleSecurityThreatEvent(event plugin.PluginEvent) er
 	data := event.Data
 
 	// Parse threat information
-	var threatInfo plugin.SecurityThreatInfo
+	var threatInfo events.ThreatInfo
 	threatData, ok := data["threat"].(map[string]interface{})
 	if !ok {
 		// Try to parse directly from data

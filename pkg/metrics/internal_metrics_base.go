@@ -318,7 +318,7 @@ func NewStorageMetrics(registry *prometheus.Registry) *StorageMetrics {
 			Help: "Total index maintenance operations",
 		}, []string{"index_name", "operation"}),
 	}
-	
+
 	// Register all metrics with the custom registry
 	registry.MustRegister(
 		metrics.KeysTotal,
@@ -339,7 +339,7 @@ func NewStorageMetrics(registry *prometheus.Registry) *StorageMetrics {
 		metrics.IndexUsage,
 		metrics.IndexMaintenance,
 	)
-	
+
 	return metrics
 }
 
@@ -429,7 +429,7 @@ func NewRateLimitMetrics(registry *prometheus.Registry) *RateLimitMetrics {
 			Help: "Total number of errors tracked by rate limiting",
 		}, []string{"status_code", "is_tor"}),
 	}
-	
+
 	// Register all metrics with the custom registry
 	registry.MustRegister(
 		metrics.ViolationsTotal,
@@ -445,7 +445,7 @@ func NewRateLimitMetrics(registry *prometheus.Registry) *RateLimitMetrics {
 		metrics.ErrorRate,
 		metrics.ErrorsTotal,
 	)
-	
+
 	return metrics
 }
 
@@ -523,7 +523,7 @@ func NewPluginMetrics(registry *prometheus.Registry) *PluginMetrics {
 			Help: "Total number of plugin method calls",
 		}, []string{"plugin_name", "method", "status"}),
 	}
-	
+
 	// Register all metrics with the custom registry
 	registry.MustRegister(
 		metrics.PluginsLoaded,
@@ -537,7 +537,7 @@ func NewPluginMetrics(registry *prometheus.Registry) *PluginMetrics {
 		metrics.PluginExecution,
 		metrics.PluginCalls,
 	)
-	
+
 	return metrics
 }
 

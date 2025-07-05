@@ -124,12 +124,12 @@ func (r *RedisBackend) IncrementConnectionCount(ip string, ttl time.Duration) er
 	defer cancel()
 
 	key := r.connectionKey(ip)
-	
+
 	// Use pipeline for atomic operations
 	pipe := r.client.Pipeline()
 	pipe.Incr(ctx, key)
 	pipe.Expire(ctx, key, ttl)
-	
+
 	_, err := pipe.Exec(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to increment connection count: %w", err)
@@ -143,7 +143,7 @@ func (r *RedisBackend) DecrementConnectionCount(ip string) error {
 	defer cancel()
 
 	key := r.connectionKey(ip)
-	
+
 	// Use Lua script to ensure we don't go below zero
 	script := `
 		local current = redis.call('GET', KEYS[1])
@@ -154,7 +154,7 @@ func (r *RedisBackend) DecrementConnectionCount(ip string) error {
 			return 0
 		end
 	`
-	
+
 	_, err := r.client.Eval(ctx, script, []string{key}).Result()
 	if err != nil {
 		return fmt.Errorf("failed to decrement connection count: %w", err)
@@ -194,19 +194,19 @@ func (r *RedisBackend) IncrementRequestCount(ip string, window time.Duration) er
 
 	// Use pipeline for atomic operations
 	pipe := r.client.Pipeline()
-	
+
 	// Remove old entries
 	pipe.ZRemRangeByScore(ctx, key, "-inf", strconv.FormatInt(minTimeNano, 10))
-	
+
 	// Add current request
 	pipe.ZAdd(ctx, key, &redis.Z{
 		Score:  float64(nowNano),
 		Member: nowNano, // Use timestamp as both score and member
 	})
-	
+
 	// Set expiration
 	pipe.Expire(ctx, key, window*2) // Keep for twice the window duration
-	
+
 	_, err := pipe.Exec(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to increment request count: %w", err)
@@ -245,19 +245,19 @@ func (r *RedisBackend) IncrementErrorCount(ip string, window time.Duration) erro
 
 	// Use pipeline for atomic operations
 	pipe := r.client.Pipeline()
-	
+
 	// Remove old entries
 	pipe.ZRemRangeByScore(ctx, key, "-inf", strconv.FormatInt(minTimeNano, 10))
-	
+
 	// Add current error
 	pipe.ZAdd(ctx, key, &redis.Z{
 		Score:  float64(nowNano),
 		Member: nowNano,
 	})
-	
+
 	// Set expiration
 	pipe.Expire(ctx, key, window*2)
-	
+
 	_, err := pipe.Exec(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to increment error count: %w", err)
@@ -273,7 +273,7 @@ func (r *RedisBackend) IsBanned(ip string) (bool, time.Time, string, error) {
 	defer cancel()
 
 	key := r.banKey(ip)
-	
+
 	// Use hash to store ban information
 	fields, err := r.client.HMGet(ctx, key, "expires_at", "reason").Result()
 	if err != nil {
@@ -327,17 +327,17 @@ func (r *RedisBackend) BanIP(ip string, duration time.Duration, reason string) e
 
 	// Use pipeline for atomic operations
 	pipe := r.client.Pipeline()
-	
+
 	// Set ban information
 	pipe.HMSet(ctx, key, map[string]interface{}{
 		"expires_at": expiresAt.Format(time.RFC3339Nano),
 		"reason":     reason,
 		"banned_at":  time.Now().Format(time.RFC3339Nano),
 	})
-	
+
 	// Set expiration slightly longer than ban duration
 	pipe.Expire(ctx, key, duration+time.Hour)
-	
+
 	_, err := pipe.Exec(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to ban IP: %w", err)
@@ -351,7 +351,7 @@ func (r *RedisBackend) UnbanIP(ip string) error {
 	defer cancel()
 
 	key := r.banKey(ip)
-	
+
 	err := r.client.Del(ctx, key).Err()
 	if err != nil {
 		return fmt.Errorf("failed to unban IP: %w", err)
@@ -367,7 +367,7 @@ func (r *RedisBackend) IsTorExit(ip string) (bool, error) {
 	defer cancel()
 
 	key := r.torExitKey()
-	
+
 	isMember, err := r.client.SIsMember(ctx, key, ip).Result()
 	if err != nil {
 		return false, fmt.Errorf("failed to check Tor exit status: %w", err)
@@ -382,13 +382,13 @@ func (r *RedisBackend) SetTorExits(ips []string, ttl time.Duration) error {
 
 	key := r.torExitKey()
 	metaKey := r.torMetaKey()
-	
+
 	// Use pipeline for atomic operations
 	pipe := r.client.Pipeline()
-	
+
 	// Clear existing set
 	pipe.Del(ctx, key)
-	
+
 	// Add new IPs
 	if len(ips) > 0 {
 		// Convert to interface slice
@@ -398,17 +398,17 @@ func (r *RedisBackend) SetTorExits(ips []string, ttl time.Duration) error {
 		}
 		pipe.SAdd(ctx, key, members...)
 	}
-	
+
 	// Set expiration
 	pipe.Expire(ctx, key, ttl)
-	
+
 	// Update metadata
 	pipe.HMSet(ctx, metaKey, map[string]interface{}{
 		"updated_at": time.Now().Format(time.RFC3339Nano),
 		"count":      len(ips),
 	})
 	pipe.Expire(ctx, metaKey, ttl)
-	
+
 	_, err := pipe.Exec(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to set Tor exits: %w", err)
@@ -422,7 +422,7 @@ func (r *RedisBackend) GetTorExitCount() (int, error) {
 	defer cancel()
 
 	key := r.torExitKey()
-	
+
 	count, err := r.client.SCard(ctx, key).Result()
 	if err != nil {
 		return 0, fmt.Errorf("failed to get Tor exit count: %w", err)
@@ -461,19 +461,19 @@ func (r *RedisBackend) IncrementGlobalTorRequestCount(window time.Duration) erro
 
 	// Use pipeline for atomic operations
 	pipe := r.client.Pipeline()
-	
+
 	// Remove old entries
 	pipe.ZRemRangeByScore(ctx, key, "-inf", strconv.FormatInt(minTimeNano, 10))
-	
+
 	// Add current request
 	pipe.ZAdd(ctx, key, &redis.Z{
 		Score:  float64(nowNano),
 		Member: nowNano,
 	})
-	
+
 	// Set expiration
 	pipe.Expire(ctx, key, window*2)
-	
+
 	_, err := pipe.Exec(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to increment global Tor request count: %w", err)
@@ -490,7 +490,7 @@ func (r *RedisBackend) GetStats() (BackendStats, error) {
 
 	// Get Tor exit count and metadata
 	torExitCount, _ := r.GetTorExitCount()
-	
+
 	torMeta, err := r.client.HMGet(ctx, r.torMetaKey(), "updated_at", "count").Result()
 	torLastUpdate := time.Time{}
 	if err == nil && torMeta[0] != nil {
@@ -523,7 +523,7 @@ func (r *RedisBackend) GetStats() (BackendStats, error) {
 			// Check if ban is still valid
 			if banned, _, _, err := r.IsBanned(ip); err == nil && banned {
 				totalBanned++
-				
+
 				// Check if it's a Tor exit
 				if isTor, err := r.IsTorExit(ip); err == nil && isTor {
 					torBanned++

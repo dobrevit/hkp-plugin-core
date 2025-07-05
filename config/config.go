@@ -9,10 +9,10 @@ import (
 
 // Config represents the main application configuration
 type Config struct {
-	Server    ServerConfig              `toml:"server"`
-	Plugins   PluginsConfig             `toml:"plugins"`
-	RateLimit RateLimitConfig           `toml:"rateLimit"`
-	Logging   LoggingConfig             `toml:"logging"`
+	Server    ServerConfig    `toml:"server"`
+	Plugins   PluginsConfig   `toml:"plugins"`
+	RateLimit RateLimitConfig `toml:"rateLimit"`
+	Logging   LoggingConfig   `toml:"logging"`
 }
 
 // ServerConfig contains server-specific configuration
@@ -23,23 +23,23 @@ type ServerConfig struct {
 
 // PluginsConfig contains plugin system configuration
 type PluginsConfig struct {
-	Enabled   bool                            `toml:"enabled"`
-	Directory string                          `toml:"directory"`
+	Enabled   bool                      `toml:"enabled"`
+	Directory string                    `toml:"directory"`
 	Config    map[string]map[string]any `toml:"config"`
 }
 
 // RateLimitConfig contains rate limiting configuration
 type RateLimitConfig struct {
-	Enabled                   bool          `toml:"enabled"`
-	MaxConcurrentConnections  int           `toml:"maxConcurrentConnections"`
-	ConnectionRate            int           `toml:"connectionRate"`
-	HTTPRequestRate           int           `toml:"httpRequestRate"`
-	HTTPErrorRate             int           `toml:"httpErrorRate"`
-	CrawlerBlockDuration      time.Duration `toml:"crawlerBlockDuration"`
-	Backend                   BackendConfig `toml:"backend"`
-	Tor                       TorConfig     `toml:"tor"`
-	Headers                   HeadersConfig `toml:"headers"`
-	Whitelist                 WhitelistConfig `toml:"whitelist"`
+	Enabled                  bool            `toml:"enabled"`
+	MaxConcurrentConnections int             `toml:"maxConcurrentConnections"`
+	ConnectionRate           int             `toml:"connectionRate"`
+	HTTPRequestRate          int             `toml:"httpRequestRate"`
+	HTTPErrorRate            int             `toml:"httpErrorRate"`
+	CrawlerBlockDuration     time.Duration   `toml:"crawlerBlockDuration"`
+	Backend                  BackendConfig   `toml:"backend"`
+	Tor                      TorConfig       `toml:"tor"`
+	Headers                  HeadersConfig   `toml:"headers"`
+	Whitelist                WhitelistConfig `toml:"whitelist"`
 }
 
 // BackendConfig contains backend storage configuration
@@ -49,20 +49,20 @@ type BackendConfig struct {
 
 // TorConfig contains Tor-specific rate limiting configuration
 type TorConfig struct {
-	Enabled                     bool          `toml:"enabled"`
-	MaxRequestsPerConnection    int           `toml:"maxRequestsPerConnection"`
-	MaxConcurrentConnections    int           `toml:"maxConcurrentConnections"`
-	ConnectionRate              int           `toml:"connectionRate"`
-	ConnectionRateWindow        time.Duration `toml:"connectionRateWindow"`
-	BanDuration                 time.Duration `toml:"banDuration"`
-	RepeatOffenderBanDuration   time.Duration `toml:"repeatOffenderBanDuration"`
-	ExitNodeListURL             string        `toml:"exitNodeListURL"`
-	UpdateInterval              time.Duration `toml:"updateInterval"`
-	CacheFilePath               string        `toml:"cacheFilePath"`
-	GlobalRateLimit             bool          `toml:"globalRateLimit"`
-	GlobalRequestRate           int           `toml:"globalRequestRate"`
-	GlobalRateWindow            time.Duration `toml:"globalRateWindow"`
-	GlobalBanDuration           time.Duration `toml:"globalBanDuration"`
+	Enabled                   bool          `toml:"enabled"`
+	MaxRequestsPerConnection  int           `toml:"maxRequestsPerConnection"`
+	MaxConcurrentConnections  int           `toml:"maxConcurrentConnections"`
+	ConnectionRate            int           `toml:"connectionRate"`
+	ConnectionRateWindow      time.Duration `toml:"connectionRateWindow"`
+	BanDuration               time.Duration `toml:"banDuration"`
+	RepeatOffenderBanDuration time.Duration `toml:"repeatOffenderBanDuration"`
+	ExitNodeListURL           string        `toml:"exitNodeListURL"`
+	UpdateInterval            time.Duration `toml:"updateInterval"`
+	CacheFilePath             string        `toml:"cacheFilePath"`
+	GlobalRateLimit           bool          `toml:"globalRateLimit"`
+	GlobalRequestRate         int           `toml:"globalRequestRate"`
+	GlobalRateWindow          time.Duration `toml:"globalRateWindow"`
+	GlobalBanDuration         time.Duration `toml:"globalBanDuration"`
 }
 
 // HeadersConfig contains HTTP headers configuration
@@ -158,30 +158,30 @@ func DefaultConfig() *Config {
 			},
 		},
 		RateLimit: RateLimitConfig{
-			Enabled:                   true,
-			MaxConcurrentConnections:  80,
-			ConnectionRate:            40,
-			HTTPRequestRate:           100,
-			HTTPErrorRate:             20,
-			CrawlerBlockDuration:      24 * time.Hour,
+			Enabled:                  true,
+			MaxConcurrentConnections: 80,
+			ConnectionRate:           40,
+			HTTPRequestRate:          100,
+			HTTPErrorRate:            20,
+			CrawlerBlockDuration:     24 * time.Hour,
 			Backend: BackendConfig{
 				Type: "memory",
 			},
 			Tor: TorConfig{
-				Enabled:                     true,
-				MaxRequestsPerConnection:    2,
-				MaxConcurrentConnections:    1,
-				ConnectionRate:              1,
-				ConnectionRateWindow:        10 * time.Second,
-				BanDuration:                 24 * time.Hour,
-				RepeatOffenderBanDuration:   576 * time.Hour,
-				ExitNodeListURL:             "https://www.dan.me.uk/torlist/?exit",
-				UpdateInterval:              1 * time.Hour,
-				CacheFilePath:               "tor_exit_nodes.cache",
-				GlobalRateLimit:             true,
-				GlobalRequestRate:           1,
-				GlobalRateWindow:            10 * time.Second,
-				GlobalBanDuration:           1 * time.Hour,
+				Enabled:                   true,
+				MaxRequestsPerConnection:  2,
+				MaxConcurrentConnections:  1,
+				ConnectionRate:            1,
+				ConnectionRateWindow:      10 * time.Second,
+				BanDuration:               24 * time.Hour,
+				RepeatOffenderBanDuration: 576 * time.Hour,
+				ExitNodeListURL:           "https://www.dan.me.uk/torlist/?exit",
+				UpdateInterval:            1 * time.Hour,
+				CacheFilePath:             "tor_exit_nodes.cache",
+				GlobalRateLimit:           true,
+				GlobalRequestRate:         1,
+				GlobalRateWindow:          10 * time.Second,
+				GlobalBanDuration:         1 * time.Hour,
 			},
 			Headers: HeadersConfig{
 				Enabled:   true,
@@ -208,19 +208,19 @@ func DefaultConfig() *Config {
 // LoadConfig loads configuration from a TOML file
 func LoadConfig(filename string) (*Config, error) {
 	config := DefaultConfig()
-	
+
 	if filename == "" {
 		return config, nil
 	}
-	
+
 	if _, err := os.Stat(filename); os.IsNotExist(err) {
 		return config, nil
 	}
-	
+
 	if _, err := toml.DecodeFile(filename, config); err != nil {
 		return nil, err
 	}
-	
+
 	return config, nil
 }
 
@@ -231,6 +231,6 @@ func SaveConfig(config *Config, filename string) error {
 		return err
 	}
 	defer file.Close()
-	
+
 	return toml.NewEncoder(file).Encode(config)
 }

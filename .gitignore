@@ -18,6 +18,9 @@
 # Go workspace file
 go.work
 
+# Hockeypuck code
+src/hockeypuck
+
 # IDE and editor files
 .vscode/
 .idea/
@@ -58,6 +61,8 @@ bower_components
 
 # node_modules (if any JS tooling is used)
 node_modules/
+
+# Go modules
 vendor/
 
 # Temporary files

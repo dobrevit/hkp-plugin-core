@@ -328,7 +328,7 @@ func (m *MemoryBackend) IncrementGlobalTorRequestCount(window time.Duration) err
 func (m *MemoryBackend) GetStats() (BackendStats, error) {
 	// Collect all data with minimal lock scopes to avoid deadlocks
 	now := time.Now()
-	
+
 	// Get banned IPs data
 	var bannedIPs []string
 	var totalBanned int

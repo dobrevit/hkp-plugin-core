@@ -9,6 +9,7 @@ require (
 	github.com/gorilla/mux v1.8.1
 	github.com/oschwald/geoip2-golang v1.11.0
 	github.com/prometheus/client_golang v1.22.0
+	github.com/sirupsen/logrus v1.9.3
 	golang.org/x/sys v0.33.0
 	gopkg.in/tomb.v2 v2.0.0-20161208151619-d5d1b5820637
 )

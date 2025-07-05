@@ -4,8 +4,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"log"
-	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
@@ -14,10 +12,14 @@ import (
 
 	"github.com/carbocation/interpose"
 	"github.com/gorilla/mux"
+	log "github.com/sirupsen/logrus"
 
-	"github.com/dobrevit/hkp-plugin-core/internal/metrics"
+	"github.com/dobrevit/hkp-plugin-core/pkg/config"
+	"github.com/dobrevit/hkp-plugin-core/pkg/events"
+	"github.com/dobrevit/hkp-plugin-core/pkg/hkpstorage"
+	"github.com/dobrevit/hkp-plugin-core/pkg/metrics"
+	"github.com/dobrevit/hkp-plugin-core/pkg/middleware"
 	"github.com/dobrevit/hkp-plugin-core/pkg/plugin"
-	"github.com/dobrevit/hkp-plugin-core/pkg/storage"
 	"github.com/dobrevit/hkp-plugin-core/src/plugins/mlabuse/mlabuse"
 	"github.com/dobrevit/hkp-plugin-core/src/plugins/ratelimit-geo/ratelimitgeo"
 	"github.com/dobrevit/hkp-plugin-core/src/plugins/ratelimit-ml/ratelimitml"
@@ -28,42 +30,48 @@ import (
 
 // Server represents the Hockeypuck server with plugin support
 type Server struct {
-	middleware    *interpose.Middleware
-	router        *mux.Router
-	pluginManager *plugin.PluginManager
-	logger        plugin.Logger
+	middleware      *interpose.Middleware
+	router          *mux.Router
+	pluginManager   *plugin.PluginManager
+	eventBus        *events.EventBus
+	middlewareChain *middleware.MiddlewareChain
+	settings        *config.Settings
+	logger          *log.Logger
 }
 
 // ServerPluginHost implements the PluginHost interface for the server
 type ServerPluginHost struct {
-	middleware *interpose.Middleware
-	router     *mux.Router
-	logger     plugin.Logger
+	server *Server
 }
 
 // RegisterMiddleware registers middleware handlers
-func (h *ServerPluginHost) RegisterMiddleware(path string, middleware func(http.Handler) http.Handler) error {
-	// Implementation would integrate with interpose middleware
+func (h *ServerPluginHost) RegisterMiddleware(path string, middlewareFunc func(http.Handler) http.Handler) error {
+	// Use the new middleware chain system
+	mw := middleware.Middleware{
+		Name:     "plugin-middleware",
+		Priority: middleware.PriorityMedium,
+		Handler:  middlewareFunc,
+		Path:     path,
+	}
+	h.server.middlewareChain.Add(mw)
 	return nil
 }
 
 // RegisterHandler registers API endpoints
 func (h *ServerPluginHost) RegisterHandler(pattern string, handler http.HandlerFunc) error {
-	h.router.HandleFunc(pattern, handler)
+	h.server.router.HandleFunc(pattern, handler)
 	return nil
 }
 
-// Storage returns storage backend (simplified implementation)
-func (h *ServerPluginHost) Storage() storage.Storage {
-	return nil // Would return actual storage implementation
+// Storage returns storage backend
+func (h *ServerPluginHost) Storage() hkpstorage.Storage {
+	// Return mock storage for now - in real Hockeypuck this would be the actual storage
+	return nil
 }
 
 // Config returns configuration
-func (h *ServerPluginHost) Config() *plugin.Settings {
-	return &plugin.Settings{
-		Bind:    ":11371",
-		DataDir: "/var/lib/hockeypuck",
-	}
+func (h *ServerPluginHost) Config() *config.Settings {
+	return h.server.settings
 }
 
 // Metrics returns metrics system
@@ -72,59 +80,111 @@ func (h *ServerPluginHost) Metrics() *metrics.Metrics {
 }
 
 // Logger returns logger
-func (h *ServerPluginHost) Logger() *slog.Logger {
-	return slog.Default()
+func (h *ServerPluginHost) Logger() *log.Logger {
+	return h.server.logger
 }
 
 // RegisterTask registers periodic tasks
 func (h *ServerPluginHost) RegisterTask(name string, interval time.Duration, task func(context.Context) error) error {
-	// Implementation would manage periodic tasks
+	// In a real implementation, this would register with a task scheduler
+	h.server.logger.WithFields(log.Fields{
+		"task":     name,
+		"interval": interval,
+	}).Debug("Task registered")
 	return nil
 }
 
-// PublishEvent publishes events to plugin system
-func (h *ServerPluginHost) PublishEvent(event plugin.PluginEvent) error {
-	// Implementation would handle event publishing
-	return nil
+// Event system methods
+func (h *ServerPluginHost) PublishEvent(event events.PluginEvent) error {
+	return h.server.eventBus.PublishEvent(event)
 }
 
-// SubscribeEvent subscribes to plugin events
-func (h *ServerPluginHost) SubscribeEvent(eventType string, handler plugin.PluginEventHandler) error {
-	// Implementation would handle event subscription
-	return nil
+func (h *ServerPluginHost) SubscribeEvent(eventType string, handler events.PluginEventHandler) error {
+	return h.server.eventBus.SubscribeEvent(eventType, handler)
+}
+
+func (h *ServerPluginHost) SubscribeKeyChanges(callback func(hkpstorage.KeyChange) error) error {
+	return h.server.eventBus.SubscribeKeyChanges(callback)
+}
+
+// Convenience methods
+func (h *ServerPluginHost) PublishThreatDetected(threat events.ThreatInfo) error {
+	return h.server.eventBus.PublishThreatDetected(threat)
+}
+
+func (h *ServerPluginHost) PublishRateLimitViolation(violation events.RateLimitViolation) error {
+	return h.server.eventBus.PublishRateLimitViolation(violation)
+}
+
+func (h *ServerPluginHost) PublishZTNAEvent(eventType string, ztnaEvent events.ZTNAEvent) error {
+	return h.server.eventBus.PublishZTNAEvent(eventType, ztnaEvent)
+}
+
+// logrusLoggerAdapter adapts *log.Logger to plugin.Logger interface
+type logrusLoggerAdapter struct {
+	*log.Logger
+}
+
+func (l *logrusLoggerAdapter) Debug(msg string, args ...interface{}) {
+	l.Logger.Debugf(msg, args...)
+}
+func (l *logrusLoggerAdapter) Info(msg string, args ...interface{}) {
+	l.Logger.Infof(msg, args...)
+}
+func (l *logrusLoggerAdapter) Warn(msg string, args ...interface{}) {
+	l.Logger.Warnf(msg, args...)
+}
+func (l *logrusLoggerAdapter) Error(msg string, args ...interface{}) {
+	l.Logger.Errorf(msg, args...)
 }
 
 // NewServer creates a new server instance
 func NewServer() *Server {
 	// Create logger
-	logger := &simpleLogger{}
+	logger := log.StandardLogger()
+
+	// Create default settings
+	settings := config.DefaultSettings()
+
+	// Create event bus
+	eventBus := events.NewEventBus(logger)
+
+	// Create middleware chain
+	middlewareChain := middleware.NewMiddlewareChain(logger)
 
 	// Create Interpose middleware chain
 	middle := interpose.New()
 
-	// Add basic middleware
-	middle.Use(loggingMiddleware(logger))
-	middle.Use(recoveryMiddleware(logger))
-
 	// Create router
 	router := mux.NewRouter()
 
+	// Create server
+	server := &Server{
+		middleware:      middle,
+		router:          router,
+		eventBus:        eventBus,
+		middlewareChain: middlewareChain,
+		settings:        &settings,
+		logger:          logger,
+	}
+
 	// Create plugin host
 	host := &ServerPluginHost{
-		middleware: middle,
-		router:     router,
-		logger:     logger,
+		server: server,
 	}
+
+	// Wrap logger for plugin manager
+	pluginLogger := &logrusLoggerAdapter{Logger: logger}
 
 	// Create plugin manager
-	pluginManager := plugin.NewPluginManager(host, logger)
+	pluginManager := plugin.NewPluginManager(host, pluginLogger)
+	server.pluginManager = pluginManager
 
-	return &Server{
-		middleware:    middle,
-		router:        router,
-		pluginManager: pluginManager,
-		logger:        logger,
-	}
+	// Add basic middleware to interpose chain
+	middle.Use(loggingMiddleware())
+	middle.Use(recoveryMiddleware(logger))
+
+	return server
 }
 
 // LoadPlugins loads all configured plugins in the correct order
@@ -287,7 +347,7 @@ func (s *Server) handleAPIAdd(w http.ResponseWriter, r *http.Request) {
 }
 
 // Middleware functions
-func loggingMiddleware(logger plugin.Logger) func(next http.Handler) http.Handler {
+func loggingMiddleware() func(next http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			start := time.Now()
@@ -297,23 +357,26 @@ func loggingMiddleware(logger plugin.Logger) func(next http.Handler) http.Handle
 
 			next.ServeHTTP(wrapped, r)
 
-			logger.Info("Request completed",
-				"method", r.Method,
-				"path", r.URL.Path,
-				"status", wrapped.statusCode,
-				"duration", time.Since(start),
-				"remote", r.RemoteAddr,
-			)
+			log.WithFields(log.Fields{
+				"method":   r.Method,
+				"path":     r.URL.Path,
+				"status":   wrapped.statusCode,
+				"duration": time.Since(start),
+				"remote":   r.RemoteAddr,
+			}).Info("Request completed")
 		})
 	}
 }
 
-func recoveryMiddleware(logger plugin.Logger) func(next http.Handler) http.Handler {
+func recoveryMiddleware(logger *log.Logger) func(next http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			defer func() {
 				if err := recover(); err != nil {
-					logger.Error("Panic recovered", "error", err, "path", r.URL.Path)
+					log.WithFields(log.Fields{
+						"error": err,
+						"path":  r.URL.Path,
+					}).Error("Panic recovered")
 					http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 				}
 			}()
@@ -334,24 +397,7 @@ func (rw *responseWriter) WriteHeader(code int) {
 	rw.ResponseWriter.WriteHeader(code)
 }
 
-// simpleLogger implements the Logger interface
-type simpleLogger struct{}
-
-func (l *simpleLogger) Debug(msg string, args ...interface{}) {
-	log.Printf("[DEBUG] %s %v", msg, args)
-}
-
-func (l *simpleLogger) Info(msg string, args ...interface{}) {
-	log.Printf("[INFO] %s %v", msg, args)
-}
-
-func (l *simpleLogger) Warn(msg string, args ...interface{}) {
-	log.Printf("[WARN] %s %v", msg, args)
-}
-
-func (l *simpleLogger) Error(msg string, args ...interface{}) {
-	log.Printf("[ERROR] %s %v", msg, args)
-}
+// Legacy simpleLogger removed - using logrus directly now
 
 // Base rate limiting plugin (simplified)
 type RateLimitPlugin struct {

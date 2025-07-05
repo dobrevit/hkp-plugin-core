@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log/slog"
 	"math"
 	"net"
 	"net/http"
@@ -16,6 +15,7 @@ import (
 	"time"
 
 	"github.com/dobrevit/hkp-plugin-core/pkg/plugin"
+	log "github.com/sirupsen/logrus"
 
 	"gopkg.in/tomb.v2"
 )
@@ -282,10 +282,10 @@ type ThreatFeedManager struct {
 	lastUpdate map[string]time.Time
 	httpClient *http.Client
 	mu         sync.RWMutex
-	logger     *slog.Logger
+	logger     *log.Logger
 }
 
-func NewThreatFeedManager(feeds []ThreatFeedConfig, logger *slog.Logger) *ThreatFeedManager {
+func NewThreatFeedManager(feeds []ThreatFeedConfig, logger *log.Logger) *ThreatFeedManager {
 	return &ThreatFeedManager{
 		feeds:      feeds,
 		indicators: make(map[string]*ThreatIndicator),

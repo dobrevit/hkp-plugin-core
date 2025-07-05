@@ -4,13 +4,15 @@ package plugin
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"net/http"
 	"sync"
 	"time"
 
-	"github.com/dobrevit/hkp-plugin-core/internal/metrics"
-	"github.com/dobrevit/hkp-plugin-core/pkg/storage"
+	"github.com/dobrevit/hkp-plugin-core/pkg/config"
+	"github.com/dobrevit/hkp-plugin-core/pkg/events"
+	"github.com/dobrevit/hkp-plugin-core/pkg/hkpstorage"
+	"github.com/dobrevit/hkp-plugin-core/pkg/metrics"
+	log "github.com/sirupsen/logrus"
 )
 
 // Plugin represents a loadable module that extends Hockeypuck functionality
@@ -43,33 +45,38 @@ type PluginHost interface {
 	RegisterHandler(pattern string, handler http.HandlerFunc) error
 
 	// Access storage backend
-	Storage() storage.Storage
+	Storage() hkpstorage.Storage
 
 	// Access configuration
-	Config() *Settings
+	Config() *config.Settings
 
 	// Access metrics system
 	Metrics() *metrics.Metrics
 
 	// Access logger
-	Logger() *slog.Logger
+	Logger() *log.Logger
 
 	// Register periodic tasks
 	RegisterTask(name string, interval time.Duration, task func(context.Context) error) error
 
 	// Publish events to plugin system
-	PublishEvent(event PluginEvent) error
+	PublishEvent(event events.PluginEvent) error
 
 	// Subscribe to plugin events
-	SubscribeEvent(eventType string, handler PluginEventHandler) error
+	SubscribeEvent(eventType string, handler events.PluginEventHandler) error
+
+	// Subscribe to Hockeypuck-style key change notifications
+	SubscribeKeyChanges(callback func(hkpstorage.KeyChange) error) error
+
+	// Convenience methods for common events
+	PublishThreatDetected(threat events.ThreatInfo) error
+	PublishRateLimitViolation(violation events.RateLimitViolation) error
+	PublishZTNAEvent(eventType string, ztnaEvent events.ZTNAEvent) error
 }
 
-// Settings represents the server configuration (simplified interface)
-type Settings struct {
-	Bind    string `toml:"bind"`
-	DataDir string `toml:"dataDir"`
-	// Add other configuration fields as needed
-}
+// Legacy Settings type - deprecated, use config.Settings instead
+// Kept for backward compatibility
+type Settings = config.Settings
 
 // PluginDependency represents a plugin dependency
 type PluginDependency struct {
@@ -88,53 +95,20 @@ const (
 	DependencyConflict DependencyType = "conflict"
 )
 
-// PluginEvent represents an event in the plugin system
-type PluginEvent struct {
-	Type      string                 `json:"type"`
-	Source    string                 `json:"source"`
-	Timestamp time.Time              `json:"timestamp"`
-	Data      map[string]interface{} `json:"data"`
-}
+// Legacy types - use events package instead
+type PluginEvent = events.PluginEvent
+type PluginEventHandler = events.PluginEventHandler
+type EndpointProtectionRequest = events.EndpointProtectionRequest
 
-// Event types for dynamic endpoint protection
+// Legacy constants - use events package instead
 const (
-	// Endpoint protection events
-	EventEndpointProtectionRequest = "endpoint.protection.request"
-	EventEndpointProtectionUpdate  = "endpoint.protection.update"
-	EventEndpointAccessDenied      = "endpoint.access.denied"
-	EventEndpointAccessGranted     = "endpoint.access.granted"
-
-	// Security events
-	EventSecurityThreatDetected     = "security.threat.detected"
-	EventSecurityAnomalyDetected    = "security.anomaly.detected"
-	EventSecurityRateLimitTriggered = "security.ratelimit.triggered"
+	EventEndpointProtectionRequest = events.EventEndpointProtectionRequest
+	EventEndpointProtectionUpdate  = events.EventEndpointProtectionUpdate
+	EventEndpointAccessDenied      = events.EventEndpointAccessDenied
+	EventEndpointAccessGranted     = events.EventEndpointAccessGranted
+	EventSecurityThreatDetected    = events.EventSecurityThreatDetected
+	EventSecurityAnomalyDetected   = events.EventSecurityAnomalyDetected
 )
-
-// EndpointProtectionRequest represents a request to protect/whitelist endpoints
-type EndpointProtectionRequest struct {
-	Action      string   `json:"action"`       // "protect" or "whitelist"
-	Paths       []string `json:"paths"`        // Endpoint paths to protect/whitelist
-	Reason      string   `json:"reason"`       // Reason for the request
-	RequesterID string   `json:"requester_id"` // Plugin requesting the change
-	Temporary   bool     `json:"temporary"`    // Whether the protection is temporary
-	Duration    string   `json:"duration"`     // Duration for temporary protection (e.g., "5m", "1h")
-	Priority    int      `json:"priority"`     // Priority level (higher = more important)
-}
-
-// SecurityThreatInfo represents information about a detected threat
-type SecurityThreatInfo struct {
-	ThreatType        string  `json:"threat_type"`        // Type of threat (e.g., "malicious_ip", "suspicious_behavior")
-	Severity          string  `json:"severity"`           // "low", "medium", "high", "critical"
-	ClientIP          string  `json:"client_ip"`          // IP address of the threat
-	UserAgent         string  `json:"user_agent"`         // User agent string
-	Endpoint          string  `json:"endpoint"`           // Endpoint being accessed
-	Description       string  `json:"description"`        // Human-readable description
-	Confidence        float64 `json:"confidence"`         // Confidence score (0.0 to 1.0)
-	RecommendedAction string  `json:"recommended_action"` // "block", "monitor", "rate_limit"
-}
-
-// PluginEventHandler handles plugin events
-type PluginEventHandler func(event PluginEvent) error
 
 // Middleware plugins provide HTTP request/response processing
 type MiddlewarePlugin interface {
@@ -176,7 +150,7 @@ type StoragePlugin interface {
 	Plugin
 
 	// Create storage backend instance
-	CreateStorage(config StorageConfig) (storage.Storage, error)
+	CreateStorage(config StorageConfig) (hkpstorage.Storage, error)
 
 	// Backend type identifier
 	BackendType() string
@@ -513,7 +487,10 @@ func (l *PluginLifecycle) Shutdown(ctx context.Context) error {
 		plugin := plugins[i]
 		if err := plugin.Shutdown(ctx); err != nil {
 			// Log error but continue shutdown
-			slog.Error("Failed to shutdown plugin", "plugin", plugin.Name(), "error", err)
+			log.WithFields(log.Fields{
+				"plugin": plugin.Name(),
+				"error":  err,
+			}).Error("Failed to shutdown plugin")
 		}
 	}
 

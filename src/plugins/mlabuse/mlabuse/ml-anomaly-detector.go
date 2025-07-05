@@ -36,12 +36,12 @@ type IsolationTree struct {
 
 // IsolationNode represents a node in the isolation tree
 type IsolationNode struct {
-	IsLeaf          bool
-	SplitFeature    int
-	SplitValue      float64
-	Left            *IsolationNode
-	Right           *IsolationNode
-	Size            int // Number of samples at this node
+	IsLeaf       bool
+	SplitFeature int
+	SplitValue   float64
+	Left         *IsolationNode
+	Right        *IsolationNode
+	Size         int // Number of samples at this node
 }
 
 // NewAnomalyDetector creates a new anomaly detector
@@ -68,25 +68,25 @@ func NewAnomalyDetector(modelPath string, threshold float64) *AnomalyDetector {
 func (ad *AnomalyDetector) LoadModel() error {
 	ad.mu.Lock()
 	defer ad.mu.Unlock()
-	
+
 	// Check if model file exists
 	if _, err := os.Stat(ad.modelPath); os.IsNotExist(err) {
 		// Initialize with default model if file doesn't exist
 		return ad.initializeDefaultModel()
 	}
-	
+
 	// Load model from file
 	file, err := os.Open(ad.modelPath)
 	if err != nil {
 		return fmt.Errorf("failed to open model file: %w", err)
 	}
 	defer file.Close()
-	
+
 	decoder := gob.NewDecoder(file)
 	if err := decoder.Decode(&ad.forest); err != nil {
 		return fmt.Errorf("failed to decode model: %w", err)
 	}
-	
+
 	return nil
 }
 
@@ -94,18 +94,18 @@ func (ad *AnomalyDetector) LoadModel() error {
 func (ad *AnomalyDetector) SaveModel() error {
 	ad.mu.RLock()
 	defer ad.mu.RUnlock()
-	
+
 	file, err := os.Create(ad.modelPath)
 	if err != nil {
 		return fmt.Errorf("failed to create model file: %w", err)
 	}
 	defer file.Close()
-	
+
 	encoder := gob.NewEncoder(file)
 	if err := encoder.Encode(ad.forest); err != nil {
 		return fmt.Errorf("failed to encode model: %w", err)
 	}
-	
+
 	return nil
 }
 
@@ -113,10 +113,10 @@ func (ad *AnomalyDetector) SaveModel() error {
 func (ad *AnomalyDetector) initializeDefaultModel() error {
 	// Generate synthetic training data representing normal behavior
 	normalData := ad.generateNormalBehaviorData(1000)
-	
+
 	// Train the forest
 	ad.forest.Train(normalData)
-	
+
 	return nil
 }
 
@@ -124,7 +124,7 @@ func (ad *AnomalyDetector) initializeDefaultModel() error {
 func (ad *AnomalyDetector) generateNormalBehaviorData(numSamples int) [][]float64 {
 	rand.Seed(time.Now().UnixNano())
 	data := make([][]float64, numSamples)
-	
+
 	for i := 0; i < numSamples; i++ {
 		// Generate features representing normal behavior
 		features := []float64{
@@ -153,7 +153,7 @@ func (ad *AnomalyDetector) generateNormalBehaviorData(numSamples int) [][]float6
 		}
 		data[i] = features
 	}
-	
+
 	return data
 }
 
@@ -161,22 +161,22 @@ func (ad *AnomalyDetector) generateNormalBehaviorData(numSamples int) [][]float6
 func (ad *AnomalyDetector) DetectAnomaly(profile *BehaviorProfile) *AnomalyScore {
 	ad.mu.RLock()
 	defer ad.mu.RUnlock()
-	
+
 	// Extract features from profile
 	features := extractFeatures(profile)
-	
+
 	// Calculate anomaly score using Isolation Forest
 	score := ad.forest.AnomalyScore(features)
-	
+
 	// Determine anomaly type and reasons
 	anomalyType, reasons := ad.analyzeAnomaly(profile, features, score)
-	
+
 	// Generate recommendation
 	recommendation := ad.generateRecommendation(score, anomalyType)
-	
+
 	// Cache the score
 	ad.forest.AnomalyScores[profile.ClientIP] = score
-	
+
 	return &AnomalyScore{
 		Score:          score,
 		Confidence:     ad.calculateConfidence(profile),
@@ -189,11 +189,11 @@ func (ad *AnomalyDetector) DetectAnomaly(profile *BehaviorProfile) *AnomalyScore
 // Train trains the Isolation Forest on the provided data
 func (f *IsolationForest) Train(data [][]float64) {
 	f.Trees = make([]*IsolationTree, f.NumTrees)
-	
+
 	for i := 0; i < f.NumTrees; i++ {
 		// Sample subset of data
 		sample := f.subsample(data)
-		
+
 		// Build isolation tree
 		tree := &IsolationTree{
 			PathLength: make(map[string]float64),
@@ -210,30 +210,30 @@ func (f *IsolationForest) subsample(data [][]float64) [][]float64 {
 	if n < sampleSize {
 		sampleSize = n
 	}
-	
+
 	// Fisher-Yates shuffle for random sampling
 	indices := make([]int, n)
 	for i := range indices {
 		indices[i] = i
 	}
-	
+
 	for i := 0; i < sampleSize; i++ {
 		j := i + rand.Intn(n-i)
 		indices[i], indices[j] = indices[j], indices[i]
 	}
-	
+
 	sample := make([][]float64, sampleSize)
 	for i := 0; i < sampleSize; i++ {
 		sample[i] = data[indices[i]]
 	}
-	
+
 	return sample
 }
 
 // buildTree recursively builds an isolation tree
 func (f *IsolationForest) buildTree(data [][]float64, depth int) *IsolationNode {
 	n := len(data)
-	
+
 	// Base cases
 	if depth >= f.MaxDepth || n <= 1 {
 		return &IsolationNode{
@@ -241,7 +241,7 @@ func (f *IsolationForest) buildTree(data [][]float64, depth int) *IsolationNode 
 			Size:   n,
 		}
 	}
-	
+
 	// All samples have same values
 	if f.allSame(data) {
 		return &IsolationNode{
@@ -249,11 +249,11 @@ func (f *IsolationForest) buildTree(data [][]float64, depth int) *IsolationNode 
 			Size:   n,
 		}
 	}
-	
+
 	// Randomly select feature and split value
 	numFeatures := len(data[0])
 	feature := rand.Intn(numFeatures)
-	
+
 	minVal, maxVal := f.getFeatureRange(data, feature)
 	if minVal == maxVal {
 		return &IsolationNode{
@@ -261,12 +261,12 @@ func (f *IsolationForest) buildTree(data [][]float64, depth int) *IsolationNode 
 			Size:   n,
 		}
 	}
-	
+
 	splitValue := minVal + rand.Float64()*(maxVal-minVal)
-	
+
 	// Split data
 	leftData, rightData := f.splitData(data, feature, splitValue)
-	
+
 	return &IsolationNode{
 		IsLeaf:       false,
 		SplitFeature: feature,
@@ -280,21 +280,21 @@ func (f *IsolationForest) buildTree(data [][]float64, depth int) *IsolationNode 
 // AnomalyScore calculates the anomaly score for a sample
 func (f *IsolationForest) AnomalyScore(sample []float64) float64 {
 	totalPathLength := 0.0
-	
+
 	for _, tree := range f.Trees {
 		pathLength := f.pathLength(sample, tree.Root, 0)
 		totalPathLength += pathLength
 	}
-	
+
 	avgPathLength := totalPathLength / float64(f.NumTrees)
-	
+
 	// Normalize using average path length of unsuccessful search in BST
 	n := float64(f.SampleSize)
 	c := 2.0*(math.Log(n-1)+0.5772156649) - 2.0*(n-1)/n
-	
+
 	// Calculate anomaly score
 	score := math.Pow(2, -avgPathLength/c)
-	
+
 	return score
 }
 
@@ -304,7 +304,7 @@ func (f *IsolationForest) pathLength(sample []float64, node *IsolationNode, curr
 		// Add average path length for remaining unbuilt tree
 		return currentDepth + f.avgPathLength(node.Size)
 	}
-	
+
 	if sample[node.SplitFeature] < node.SplitValue {
 		return f.pathLength(sample, node.Left, currentDepth+1)
 	}
@@ -327,7 +327,7 @@ func (f *IsolationForest) allSame(data [][]float64) bool {
 	if len(data) <= 1 {
 		return true
 	}
-	
+
 	first := data[0]
 	for i := 1; i < len(data); i++ {
 		for j := range first {
@@ -342,7 +342,7 @@ func (f *IsolationForest) allSame(data [][]float64) bool {
 func (f *IsolationForest) getFeatureRange(data [][]float64, feature int) (float64, float64) {
 	minVal := data[0][feature]
 	maxVal := data[0][feature]
-	
+
 	for _, sample := range data {
 		if sample[feature] < minVal {
 			minVal = sample[feature]
@@ -351,13 +351,13 @@ func (f *IsolationForest) getFeatureRange(data [][]float64, feature int) (float6
 			maxVal = sample[feature]
 		}
 	}
-	
+
 	return minVal, maxVal
 }
 
 func (f *IsolationForest) splitData(data [][]float64, feature int, splitValue float64) ([][]float64, [][]float64) {
 	var left, right [][]float64
-	
+
 	for _, sample := range data {
 		if sample[feature] < splitValue {
 			left = append(left, sample)
@@ -365,7 +365,7 @@ func (f *IsolationForest) splitData(data [][]float64, feature int, splitValue fl
 			right = append(right, sample)
 		}
 	}
-	
+
 	return left, right
 }
 
@@ -373,56 +373,56 @@ func (f *IsolationForest) splitData(data [][]float64, feature int, splitValue fl
 func (ad *AnomalyDetector) analyzeAnomaly(profile *BehaviorProfile, features []float64, score float64) (string, []string) {
 	var anomalyType string
 	var reasons []string
-	
+
 	// Check for bot-like behavior (too regular)
 	if profile.EntropyMetrics.TimingEntropy < 0.2 {
 		anomalyType = "bot_regular"
 		reasons = append(reasons, "Timing pattern too regular (likely automated)")
 	}
-	
+
 	// Check for bot-like behavior (artificially random)
 	if profile.EntropyMetrics.TimingEntropy > 0.9 {
 		anomalyType = "bot_random"
 		reasons = append(reasons, "Timing pattern artificially random")
 	}
-	
+
 	// Check for rapid requests
 	if len(profile.RequestIntervals) > 0 && features[0] < 0.5 { // avg_interval < 0.5s
 		anomalyType = "rapid_requests"
 		reasons = append(reasons, "Request rate too fast for human")
 	}
-	
+
 	// Check for user agent rotation
 	if len(profile.UserAgentRotation) > 3 {
 		anomalyType = "user_agent_rotation"
 		reasons = append(reasons, "Suspicious user agent rotation detected")
 	}
-	
+
 	// Check for crawler behavior
 	if profile.SessionBehavior.UniquePathsCount > 50 {
 		anomalyType = "crawler"
 		reasons = append(reasons, "Excessive path exploration (crawler behavior)")
 	}
-	
+
 	// Check for high error rate
 	if profile.SessionBehavior.ErrorRate > 0.3 {
 		anomalyType = "high_errors"
 		reasons = append(reasons, "Abnormally high error rate")
 	}
-	
+
 	// Default anomaly type if score is high but no specific pattern
 	if score >= ad.threshold && anomalyType == "" {
 		anomalyType = "general_anomaly"
 		reasons = append(reasons, "Behavior deviates significantly from normal patterns")
 	}
-	
+
 	return anomalyType, reasons
 }
 
 // calculateConfidence calculates confidence in the anomaly detection
 func (ad *AnomalyDetector) calculateConfidence(profile *BehaviorProfile) float64 {
 	confidence := 0.5 // Base confidence
-	
+
 	// Increase confidence with more data points
 	dataPoints := len(profile.RequestIntervals)
 	if dataPoints > 50 {
@@ -432,7 +432,7 @@ func (ad *AnomalyDetector) calculateConfidence(profile *BehaviorProfile) float64
 	} else if dataPoints > 10 {
 		confidence += 0.1
 	}
-	
+
 	// Increase confidence if multiple indicators present
 	indicators := 0
 	if profile.EntropyMetrics.TimingEntropy < 0.2 || profile.EntropyMetrics.TimingEntropy > 0.9 {
@@ -444,14 +444,14 @@ func (ad *AnomalyDetector) calculateConfidence(profile *BehaviorProfile) float64
 	if profile.SessionBehavior.ErrorRate > 0.2 {
 		indicators++
 	}
-	
+
 	confidence += float64(indicators) * 0.1
-	
+
 	// Cap at 0.95
 	if confidence > 0.95 {
 		confidence = 0.95
 	}
-	
+
 	return confidence
 }
 
@@ -480,7 +480,7 @@ func (ad *AnomalyDetector) generateRecommendation(score float64, anomalyType str
 func (ad *AnomalyDetector) UpdateModel(newData []BehaviorDataPoint) error {
 	ad.mu.Lock()
 	defer ad.mu.Unlock()
-	
+
 	// Convert behavior data points to feature arrays
 	var trainingData [][]float64
 	for _, dataPoint := range newData {
@@ -488,25 +488,24 @@ func (ad *AnomalyDetector) UpdateModel(newData []BehaviorDataPoint) error {
 			trainingData = append(trainingData, dataPoint.Features)
 		}
 	}
-	
+
 	if len(trainingData) < 10 {
 		return nil // Not enough data for update
 	}
-	
+
 	// Retrain a subset of trees (online learning)
 	numTreesUpdate := ad.forest.NumTrees / 10 // Update 10% of trees
 	for i := 0; i < numTreesUpdate; i++ {
 		treeIdx := rand.Intn(ad.forest.NumTrees)
-		
+
 		// Combine new data with synthetic normal data
 		normalData := ad.generateNormalBehaviorData(100)
 		combinedData := append(trainingData, normalData...)
-		
+
 		// Rebuild this tree
 		sample := ad.forest.subsample(combinedData)
 		ad.forest.Trees[treeIdx].Root = ad.forest.buildTree(sample, 0)
 	}
-	
+
 	return nil
 }
-	
