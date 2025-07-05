@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	"hkp-plugin-core/pkg/plugin"
+	"github.com/dobrevit/hkp-plugin-core/pkg/plugin"
 
 	"gopkg.in/tomb.v2"
 )

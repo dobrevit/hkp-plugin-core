@@ -12,7 +12,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"hkp-plugin-core/pkg/plugin"
+	"github.com/dobrevit/hkp-plugin-core/pkg/plugin"
 )
 
 // Plugin constants

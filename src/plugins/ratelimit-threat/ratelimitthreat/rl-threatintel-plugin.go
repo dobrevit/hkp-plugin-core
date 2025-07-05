@@ -15,7 +15,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"hkp-plugin-core/pkg/plugin"
+	"github.com/dobrevit/hkp-plugin-core/pkg/plugin"
 
 	"gopkg.in/tomb.v2"
 )
@@ -398,6 +398,26 @@ func (tfm *ThreatFeedManager) parseFeed(feed ThreatFeedConfig, reader io.Reader)
 	var indicators []*ThreatIndicator
 
 	switch feed.Format {
+	case "json-array":
+		// Parse JSON array feed
+		var data []string
+		if err := json.NewDecoder(reader).Decode(&data); err != nil {
+			return nil, fmt.Errorf("failed to decode JSON array: %w", err)
+		}
+		for _, value := range data {
+			indicator := &ThreatIndicator{
+				Value:      value,
+				Type:       feed.Type,
+				ThreatType: "generic",
+				Severity:   "medium",
+				Confidence: 0.7,
+				Source:     feed.Name,
+				FirstSeen:  time.Now(),
+				LastSeen:   time.Now(),
+			}
+			indicators = append(indicators, indicator)
+		}
+
 	case "json":
 		// Parse JSON feed
 		var data []map[string]interface{}

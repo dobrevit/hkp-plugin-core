@@ -8,40 +8,40 @@ import (
 	"testing"
 	"time"
 
-	"hkp-plugin-core/src/plugins/zerotrust/zerotrust"
+	"github.com/dobrevit/hkp-plugin-core/src/plugins/zerotrust/zerotrust"
 )
 
 func TestZeroTrustPlugin(t *testing.T) {
 	// Create test plugin instance
-	config := &zerotrust.ZTNAConfig{
-		Enabled: true,
-		PolicyMode: "enforce",
+	_ = &zerotrust.ZTNAConfig{
+		Enabled:        true,
+		PolicyMode:     "enforce",
 		SessionTimeout: 30 * time.Minute,
 		RiskAssessment: zerotrust.RiskAssessmentConfig{
-			Enabled: true,
-			BaselineRisk: 0.3,
+			Enabled:           true,
+			BaselineRisk:      0.3,
 			HighRiskThreshold: 0.7,
 			AnomalyMultiplier: 1.5,
 		},
 		NetworkSegmentation: zerotrust.NetworkSegmentationConfig{
-			Enabled: true,
+			Enabled:        true,
 			DefaultSegment: "untrusted",
 			SegmentPolicies: map[string]zerotrust.SegmentPolicy{
 				"untrusted": {
 					AllowedResources: []string{"/public/*"},
-					RequireMFA: false,
-					MaxRiskScore: 0.8,
+					RequireMFA:       false,
+					MaxRiskScore:     0.8,
 				},
 				"trusted": {
 					AllowedResources: []string{"/*"},
-					RequireMFA: false,
-					MaxRiskScore: 0.6,
+					RequireMFA:       false,
+					MaxRiskScore:     0.6,
 				},
 			},
 		},
 	}
 
-	plugin := &zerotrust.ZeroTrustPlugin{}
+	_ = &zerotrust.ZeroTrustPlugin{}
 	// Initialize would be called here in real scenario
 
 	t.Run("Test Login Success", func(t *testing.T) {
@@ -56,14 +56,14 @@ func TestZeroTrustPlugin(t *testing.T) {
 		req.RemoteAddr = "127.0.0.1:12345"
 
 		w := httptest.NewRecorder()
-		
+
 		// In real test, we'd call the handler
 		// plugin.handleLogin(w, req)
 
 		// For now, simulate success
 		w.WriteHeader(http.StatusOK)
 		json.NewEncoder(w).Encode(map[string]string{
-			"status": "success",
+			"status":     "success",
 			"session_id": "test-session-123",
 		})
 
@@ -74,7 +74,7 @@ func TestZeroTrustPlugin(t *testing.T) {
 
 		var loginResp map[string]string
 		json.NewDecoder(resp.Body).Decode(&loginResp)
-		
+
 		if loginResp["status"] != "success" {
 			t.Errorf("Expected success status, got %s", loginResp["status"])
 		}
@@ -91,7 +91,7 @@ func TestZeroTrustPlugin(t *testing.T) {
 		req.Header.Set("Content-Type", "application/json")
 
 		w := httptest.NewRecorder()
-		
+
 		// Simulate failure
 		w.WriteHeader(http.StatusUnauthorized)
 		w.Write([]byte("Invalid credentials"))
@@ -105,15 +105,15 @@ func TestZeroTrustPlugin(t *testing.T) {
 	t.Run("Test Risk Assessment", func(t *testing.T) {
 		// Test risk calculation logic
 		testCases := []struct {
-			name string
-			factors map[string]float64
+			name         string
+			factors      map[string]float64
 			expectedRisk float64
 		}{
 			{
 				name: "Low risk",
 				factors: map[string]float64{
 					"location": 0.1,
-					"device": 0.2,
+					"device":   0.2,
 					"behavior": 0.1,
 				},
 				expectedRisk: 0.3, // baseline
@@ -122,7 +122,7 @@ func TestZeroTrustPlugin(t *testing.T) {
 				name: "High risk",
 				factors: map[string]float64{
 					"location": 0.5,
-					"device": 0.3,
+					"device":   0.3,
 					"behavior": 0.4,
 				},
 				expectedRisk: 0.7, // should trigger high risk
@@ -149,13 +149,13 @@ func TestZeroTrustPlugin(t *testing.T) {
 		req.Header.Set("Cookie", "ztna-session=test-session-123")
 
 		w := httptest.NewRecorder()
-		
+
 		// Simulate verification
 		w.WriteHeader(http.StatusOK)
 		json.NewEncoder(w).Encode(zerotrust.VerificationResponse{
-			Status: "verified",
+			Status:     "verified",
 			TrustLevel: "high",
-			RiskScore: 0.2,
+			RiskScore:  0.2,
 		})
 
 		resp := w.Result()
@@ -169,13 +169,13 @@ func TestSessionManagement(t *testing.T) {
 	t.Run("Test Session Creation", func(t *testing.T) {
 		// Test session creation logic
 		session := &zerotrust.SessionContext{
-			SessionID: "test-123",
-			UserID: "testuser",
-			IPAddress: "127.0.0.1",
-			CreatedAt: time.Now(),
+			SessionID:      "test-123",
+			UserID:         "testuser",
+			IPAddress:      "127.0.0.1",
+			CreatedAt:      time.Now(),
 			LastActivityAt: time.Now(),
-			TrustLevel: zerotrust.TrustLevelMedium,
-			RiskScore: 0.3,
+			TrustLevel:     zerotrust.TrustLevelMedium,
+			RiskScore:      0.3,
 		}
 
 		if session.SessionID == "" {
@@ -189,7 +189,7 @@ func TestSessionManagement(t *testing.T) {
 
 	t.Run("Test Session Timeout", func(t *testing.T) {
 		session := &zerotrust.SessionContext{
-			SessionID: "test-456",
+			SessionID:      "test-456",
 			LastActivityAt: time.Now().Add(-35 * time.Minute), // Expired
 		}
 
@@ -204,41 +204,41 @@ func TestSessionManagement(t *testing.T) {
 
 func TestPolicyEngine(t *testing.T) {
 	t.Run("Test Access Policy Evaluation", func(t *testing.T) {
-		policy := zerotrust.AccessPolicy{
-			ID: "test-policy",
-			Name: "Test Policy",
-			Resources: []string{"/api/*", "/admin/*"},
+		_ = zerotrust.AccessPolicy{
+			ID:                 "test-policy",
+			Name:               "Test Policy",
+			Resources:          []string{"/api/*", "/admin/*"},
 			RequiredTrustLevel: zerotrust.TrustLevelHigh,
-			RequiredFactors: []string{"password", "totp"},
-			RiskThreshold: 0.5,
+			RequiredFactors:    []string{"password", "totp"},
+			RiskThreshold:      0.5,
 		}
 
 		testCases := []struct {
-			name string
-			session *zerotrust.SessionContext
-			resource string
+			name        string
+			session     *zerotrust.SessionContext
+			resource    string
 			shouldAllow bool
 		}{
 			{
 				name: "Allow high trust",
 				session: &zerotrust.SessionContext{
 					TrustLevel: zerotrust.TrustLevelHigh,
-					RiskScore: 0.3,
+					RiskScore:  0.3,
 					AuthFactors: []zerotrust.AuthFactor{
 						{Type: "password", Verified: true},
 						{Type: "totp", Verified: true},
 					},
 				},
-				resource: "/api/users",
+				resource:    "/api/users",
 				shouldAllow: true,
 			},
 			{
 				name: "Deny low trust",
 				session: &zerotrust.SessionContext{
 					TrustLevel: zerotrust.TrustLevelLow,
-					RiskScore: 0.7,
+					RiskScore:  0.7,
 				},
-				resource: "/admin/settings",
+				resource:    "/admin/settings",
 				shouldAllow: false,
 			},
 		}
@@ -260,9 +260,9 @@ func TestDeviceFingerprinting(t *testing.T) {
 
 		// Device profiling logic would be tested here
 		expectedProfile := zerotrust.DeviceProfile{
-			Platform: "linux",
+			Platform:    "linux",
 			BrowserInfo: "Mozilla/5.0",
-			TrustScore: 0.5,
+			TrustScore:  0.5,
 		}
 
 		if expectedProfile.Platform != "linux" {

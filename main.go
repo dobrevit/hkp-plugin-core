@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
@@ -14,13 +15,15 @@ import (
 	"github.com/carbocation/interpose"
 	"github.com/gorilla/mux"
 
-	"hkp-plugin-core/pkg/plugin"
-	"hkp-plugin-core/src/plugins/mlabuse/mlabuse"
-	"hkp-plugin-core/src/plugins/ratelimit-geo/ratelimitgeo"
-	"hkp-plugin-core/src/plugins/ratelimit-ml/ratelimitml"
-	"hkp-plugin-core/src/plugins/ratelimit-tarpit/ratelimittarpit"
-	"hkp-plugin-core/src/plugins/ratelimit-threat/ratelimitthreat"
-	"hkp-plugin-core/src/plugins/zerotrust/zerotrust"
+	"github.com/dobrevit/hkp-plugin-core/internal/metrics"
+	"github.com/dobrevit/hkp-plugin-core/pkg/plugin"
+	"github.com/dobrevit/hkp-plugin-core/pkg/storage"
+	"github.com/dobrevit/hkp-plugin-core/src/plugins/mlabuse/mlabuse"
+	"github.com/dobrevit/hkp-plugin-core/src/plugins/ratelimit-geo/ratelimitgeo"
+	"github.com/dobrevit/hkp-plugin-core/src/plugins/ratelimit-ml/ratelimitml"
+	"github.com/dobrevit/hkp-plugin-core/src/plugins/ratelimit-tarpit/ratelimittarpit"
+	"github.com/dobrevit/hkp-plugin-core/src/plugins/ratelimit-threat/ratelimitthreat"
+	"github.com/dobrevit/hkp-plugin-core/src/plugins/zerotrust/zerotrust"
 )
 
 // Server represents the Hockeypuck server with plugin support
@@ -29,6 +32,66 @@ type Server struct {
 	router        *mux.Router
 	pluginManager *plugin.PluginManager
 	logger        plugin.Logger
+}
+
+// ServerPluginHost implements the PluginHost interface for the server
+type ServerPluginHost struct {
+	middleware *interpose.Middleware
+	router     *mux.Router
+	logger     plugin.Logger
+}
+
+// RegisterMiddleware registers middleware handlers
+func (h *ServerPluginHost) RegisterMiddleware(path string, middleware func(http.Handler) http.Handler) error {
+	// Implementation would integrate with interpose middleware
+	return nil
+}
+
+// RegisterHandler registers API endpoints
+func (h *ServerPluginHost) RegisterHandler(pattern string, handler http.HandlerFunc) error {
+	h.router.HandleFunc(pattern, handler)
+	return nil
+}
+
+// Storage returns storage backend (simplified implementation)
+func (h *ServerPluginHost) Storage() storage.Storage {
+	return nil // Would return actual storage implementation
+}
+
+// Config returns configuration
+func (h *ServerPluginHost) Config() *plugin.Settings {
+	return &plugin.Settings{
+		Bind:    ":11371",
+		DataDir: "/var/lib/hockeypuck",
+	}
+}
+
+// Metrics returns metrics system
+func (h *ServerPluginHost) Metrics() *metrics.Metrics {
+	return metrics.NewMetrics()
+}
+
+// Logger returns logger
+func (h *ServerPluginHost) Logger() *slog.Logger {
+	return slog.Default()
+}
+
+// RegisterTask registers periodic tasks
+func (h *ServerPluginHost) RegisterTask(name string, interval time.Duration, task func(context.Context) error) error {
+	// Implementation would manage periodic tasks
+	return nil
+}
+
+// PublishEvent publishes events to plugin system
+func (h *ServerPluginHost) PublishEvent(event plugin.PluginEvent) error {
+	// Implementation would handle event publishing
+	return nil
+}
+
+// SubscribeEvent subscribes to plugin events
+func (h *ServerPluginHost) SubscribeEvent(eventType string, handler plugin.PluginEventHandler) error {
+	// Implementation would handle event subscription
+	return nil
 }
 
 // NewServer creates a new server instance
@@ -46,8 +109,15 @@ func NewServer() *Server {
 	// Create router
 	router := mux.NewRouter()
 
+	// Create plugin host
+	host := &ServerPluginHost{
+		middleware: middle,
+		router:     router,
+		logger:     logger,
+	}
+
 	// Create plugin manager
-	pluginManager := plugin.NewPluginManager(middle, logger)
+	pluginManager := plugin.NewPluginManager(host, logger)
 
 	return &Server{
 		middleware:    middle,

@@ -11,11 +11,10 @@ import (
 	"sync"
 	"time"
 
+	"github.com/dobrevit/hkp-plugin-core/pkg/plugin"
 	"github.com/oschwald/geoip2-golang"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
-
-	"hkp-plugin-core/pkg/plugin"
 )
 
 const (
@@ -791,3 +790,6 @@ impossible_travel_ban = "6h"
 clustering_ban = "2h"
 asn_jumping_ban = "30m"
 `
+
+// Compatibility alias for main.go
+type RateLimitGeoPlugin = GeoRateLimitPlugin

@@ -1,12 +1,12 @@
-# Epic 002: Geographic Analysis Enhancement
+# Epic 003: Geographic Analysis Enhancement
 
 ## Epic Overview
 
-**Epic ID**: EP002  
+**Epic ID**: EP003  
 **Epic Name**: Geographic Analysis Enhancement  
 **Priority**: High  
 **Business Value**: Advanced security through location-based threat detection  
-**Story Points**: 40  
+**Story Points**: 53  
 **Planned Duration**: 2 Sprints (4 weeks)  
 **Team Lead**: Security Engineer  
 
@@ -51,6 +51,8 @@ Complete the Geographic Analysis plugin by implementing all planned API endpoint
 - Geographic clustering detection
 - ASN (Autonomous System Number) analysis
 - VPN/proxy detection improvements
+- Datacenter IP identification
+- Residential proxy detection
 
 ### 3. Geographic Policy Engine
 - Country-based access controls
@@ -98,12 +100,20 @@ Complete the Geographic Analysis plugin by implementing all planned API endpoint
 **Story Points**: 8  
 **Sprint**: 5  
 
-### US010: VPN/Proxy Detection
+### US010: Enhanced VPN/Proxy Detection
 **As a** Security Analyst  
-**I want** to detect VPN and proxy usage  
-**So that** I can apply appropriate security policies
+**I want** to detect VPN, proxy, and datacenter usage with ASN analysis  
+**So that** I can apply appropriate security policies based on network infrastructure
 
-**Story Points**: 6  
+**Story Points**: 10  
+**Sprint**: 5
+
+### US011: ASN Analysis and Tracking
+**As a** Security Engineer  
+**I want** to analyze Autonomous System Numbers for infrastructure patterns  
+**So that** I can detect coordinated attacks from similar network infrastructure
+
+**Story Points**: 7  
 **Sprint**: 5  
 
 ## API Endpoints to Implement
@@ -119,6 +129,13 @@ Complete the Geographic Analysis plugin by implementing all planned API endpoint
 - `GET /geo/impossible-travel` - Get impossible travel detections
 - `GET /geo/clusters` - Get geographic cluster analysis
 - `POST /geo/validate-travel` - Validate travel time between locations
+
+### ASN and Infrastructure Analysis
+- `GET /geo/asn/{asn}` - Get ASN information and threat assessment
+- `POST /geo/asn/analyze` - Analyze IP for ASN patterns
+- `GET /geo/datacenter/detect` - Detect datacenter IP ranges
+- `POST /geo/proxy/check` - Check for VPN/proxy usage
+- `GET /geo/infrastructure/patterns` - Get infrastructure attack patterns
 
 ### Policy Management
 - `GET /geo/policies` - Get geographic policies

@@ -1,18 +1,18 @@
-# Epic 003: Advanced ML Capabilities
+# Epic 005: Advanced ML Capabilities
 
 ## Epic Overview
 
-**Epic ID**: EP003  
-**Epic Name**: Advanced ML Capabilities  
+**Epic ID**: EP005  
+**Epic Name**: Advanced ML Capabilities & Distributed Intelligence  
 **Priority**: High  
-**Business Value**: Next-generation threat detection through advanced machine learning  
-**Story Points**: 65  
-**Planned Duration**: 3 Sprints (6 weeks)  
+**Business Value**: Next-generation threat detection through advanced machine learning and federated defense  
+**Story Points**: 89  
+**Planned Duration**: 4 Sprints (8 weeks)  
 **Team Lead**: ML Engineer  
 
 ## Epic Goal
 
-Enhance the existing ML abuse detection system with advanced machine learning capabilities including deep learning models, sophisticated LLM detection, distributed learning, real-time model updates, and predictive analytics. Transform the current basic ML system into a state-of-the-art AI-powered security platform.
+Enhance the existing ML abuse detection system with advanced machine learning capabilities including deep learning models, sophisticated LLM detection, distributed learning, real-time model updates, and predictive analytics. Implement federated defense network and distributed intelligence sharing for community-wide protection. Transform the current basic ML system into a state-of-the-art AI-powered security platform with collaborative threat intelligence.
 
 ## Business Value
 
@@ -20,6 +20,8 @@ Enhance the existing ML abuse detection system with advanced machine learning ca
 - **Reduced False Positives**: More accurate detection through advanced algorithms
 - **Predictive Security**: Anticipate attacks before they occur
 - **Automated Adaptation**: Self-improving system that adapts to new threats
+- **Community Defense**: Federated learning enables collective protection across instances
+- **Intelligence Sharing**: Real-time threat intelligence sharing between Hockeypuck instances
 
 ## Epic Hypothesis
 
@@ -70,6 +72,18 @@ Enhance the existing ML abuse detection system with advanced machine learning ca
 - Risk scoring improvements
 - Behavioral prediction models
 
+### 6. Federated Defense Network
+- Real-time attack notification between instances
+- Shared blocklists with reputation scoring
+- Coordinated response to distributed attacks
+- Consensus-based threat assessment
+
+### 7. Distributed Intelligence Sharing
+- Privacy-preserving threat intelligence sharing
+- Community threat feed integration
+- Collaborative model training protocols
+- Secure peer-to-peer coordination
+
 ## User Stories
 
 ### US011: Deep Learning Model Integration
@@ -110,7 +124,23 @@ Enhance the existing ML abuse detection system with advanced machine learning ca
 **So that** I can proactively defend against anticipated attacks
 
 **Story Points**: 5  
-**Sprint**: 8  
+**Sprint**: 8
+
+### US016: Federated Defense Network
+**As a** Security Operator  
+**I want** coordinated defense across multiple Hockeypuck instances  
+**So that** attacks can be detected and mitigated community-wide
+
+**Story Points**: 13  
+**Sprint**: 8-9
+
+### US017: Distributed Intelligence Sharing
+**As a** SOC Operator  
+**I want** privacy-preserving threat intelligence sharing  
+**So that** our instance benefits from community threat knowledge
+
+**Story Points**: 8  
+**Sprint**: 9  
 
 ## Technical Architecture
 
@@ -118,7 +148,7 @@ Enhance the existing ML abuse detection system with advanced machine learning ca
 
 ```
 ┌─────────────────┐    ┌──────────────────┐    ┌─────────────────┐
-│   Data Ingestion │───▶│  Feature Engine  │───▶│  Model Training │
+│  Data Ingestion │───▶│  Feature Engine  │───▶│  Model Training │
 │   - Real-time   │    │  - Extraction    │    │  - Deep Learning│
 │   - Batch       │    │  - Engineering   │    │  - Ensemble     │
 │   - Streaming   │    │  - Selection     │    │  - Transfer     │
@@ -189,6 +219,13 @@ Enhance the existing ML abuse detection system with advanced machine learning ca
 - `POST /api/ml/federation/sync` - Sync models
 - `GET /api/ml/federation/peers` - Connected peers
 - `POST /api/ml/federation/contribute` - Contribute training data
+
+### Distributed Intelligence
+- `GET /api/defense/network/status` - Federated defense status
+- `POST /api/defense/network/alert` - Send attack alert to network
+- `GET /api/defense/network/threats` - Receive threat intelligence
+- `POST /api/defense/network/join` - Join defense network
+- `PUT /api/defense/network/blocklist` - Update shared blocklist
 
 ## Technical Requirements
 
@@ -352,17 +389,23 @@ class SecurityTransformer(nn.Module):
 - **Deliverables**: Federated learning system, model update automation
 
 ### Sprint 8 (Weeks 15-16)
-- **Focus**: Predictive analytics and optimization
-- **Stories**: US015, optimization tasks
-- **Deliverables**: Predictive dashboard, performance optimization
+- **Focus**: Predictive analytics and federated defense
+- **Stories**: US015, US016
+- **Deliverables**: Predictive dashboard, federated defense network
+
+### Sprint 9 (Weeks 17-18)
+- **Focus**: Distributed intelligence and optimization
+- **Stories**: US017, performance optimization
+- **Deliverables**: Intelligence sharing system, performance tuning
 
 ## Cost Estimation
 
 ### Development Costs
-- **ML Engineer**: 6 weeks × $14,000/month × 0.25 = $21,000
-- **Senior Go Developer**: 3 weeks × $12,000/month × 0.25 = $9,000
+- **ML Engineer**: 8 weeks × $14,000/month × 0.25 = $28,000
+- **Senior Go Developer**: 4 weeks × $12,000/month × 0.25 = $12,000
+- **Security Engineer**: 2 weeks × $13,000/month × 0.25 = $6,500
 
-**Total Development**: $30,000
+**Total Development**: $46,500
 
 ### Infrastructure Costs
 - GPU instances for training: $2,000/month × 2 months = $4,000
@@ -372,4 +415,4 @@ class SecurityTransformer(nn.Module):
 
 **Total Infrastructure**: $9,100
 
-**Epic Total**: $39,100
+**Epic Total**: $55,600

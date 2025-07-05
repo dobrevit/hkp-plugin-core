@@ -181,7 +181,7 @@ func (ca *ContinuousAuthenticator) VerifySession(session *SessionContext, r *htt
 // isSessionValid checks if a session is still valid
 func (ca *ContinuousAuthenticator) isSessionValid(session *SessionContext) bool {
 	// Check session age
-	sessionTimeout, _ := time.ParseDuration(ca.config.SessionTimeout)
+	sessionTimeout, _ := time.ParseDuration(ca.config.GetSessionTimeoutString())
 	if time.Since(session.CreatedAt) > sessionTimeout {
 		return false
 	}

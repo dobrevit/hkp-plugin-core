@@ -532,14 +532,17 @@ func (rl *RateLimiter) isTorExit(ip string) bool {
 		return false
 	}
 
+	// Try backend first (this may involve its own locking)
 	if isTor, err := rl.backend.IsTorExit(ip); err == nil {
 		return isTor
 	}
 
-	// Fallback to in-memory cache
+	// Fallback to in-memory cache only if backend fails
+	// Use separate lock scope to avoid potential deadlock
 	rl.torMutex.RLock()
-	defer rl.torMutex.RUnlock()
-	return rl.torExits[ip]
+	result := rl.torExits[ip]
+	rl.torMutex.RUnlock()
+	return result
 }
 
 // banIP bans an IP address

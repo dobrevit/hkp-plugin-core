@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	"hkp-plugin-core/pkg/plugin"
+	"github.com/dobrevit/hkp-plugin-core/pkg/plugin"
 )
 
 // Plugin constants
@@ -47,7 +47,7 @@ func (p *AntiAbusePlugin) Initialize(ctx context.Context, host plugin.PluginHost
 	if cfg, ok := config["windowSeconds"].(int); ok {
 		p.window = time.Duration(cfg) * time.Second
 	}
-	
+
 	// Initialize whitelist with default safe IPs
 	defaultWhitelist := []string{
 		"127.0.0.1",
@@ -56,7 +56,7 @@ func (p *AntiAbusePlugin) Initialize(ctx context.Context, host plugin.PluginHost
 		"172.16.0.0/12",
 		"192.168.0.0/16",
 	}
-	
+
 	// Check if custom whitelist is provided
 	if whitelistCfg, ok := config["whitelist"].([]interface{}); ok {
 		defaultWhitelist = make([]string, 0, len(whitelistCfg))
@@ -66,7 +66,7 @@ func (p *AntiAbusePlugin) Initialize(ctx context.Context, host plugin.PluginHost
 			}
 		}
 	}
-	
+
 	// Parse whitelist entries
 	for _, ipStr := range defaultWhitelist {
 		if ip := net.ParseIP(ipStr); ip != nil {
@@ -79,7 +79,7 @@ func (p *AntiAbusePlugin) Initialize(ctx context.Context, host plugin.PluginHost
 			host.Logger().Warn("Invalid whitelist entry", "ip", ipStr)
 		}
 	}
-	
+
 	host.Logger().Info("Anti-abuse plugin initialized",
 		"threshold", p.threshold,
 		"window", p.window,
@@ -98,6 +98,7 @@ func (p *AntiAbusePlugin) Initialize(ctx context.Context, host plugin.PluginHost
 
 	return nil
 }
+
 // Name returns the plugin name
 func (p *AntiAbusePlugin) Name() string {
 	return PluginName
@@ -135,7 +136,7 @@ func (p *AntiAbusePlugin) CreateMiddleware() (func(http.Handler) http.Handler, e
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			clientIP := p.extractClientIP(r)
 			now := time.Now()
-			
+
 			// Check if IP is whitelisted
 			if p.isWhitelisted(clientIP) {
 				// Add headers for debugging but don't enforce limits
@@ -175,7 +176,7 @@ func (p *AntiAbusePlugin) CreateMiddleware() (func(http.Handler) http.Handler, e
 				w.Write([]byte("Rate limit exceeded: Too many requests"))
 				return
 			}
-			
+
 			// Not blocked
 			w.Header().Set("X-AntiAbuse-Blocked", "false")
 			next.ServeHTTP(w, r)
@@ -204,19 +205,19 @@ func (p *AntiAbusePlugin) isWhitelisted(ip string) bool {
 	if p.whitelist[ip] {
 		return true
 	}
-	
+
 	// Check CIDR ranges
 	parsedIP := net.ParseIP(ip)
 	if parsedIP == nil {
 		return false
 	}
-	
+
 	for _, ipNet := range p.ipNets {
 		if ipNet.Contains(parsedIP) {
 			return true
 		}
 	}
-	
+
 	return false
 }
 

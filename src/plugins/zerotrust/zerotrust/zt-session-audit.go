@@ -208,7 +208,7 @@ func (sm *SessionManager) generateSessionID() (string, error) {
 
 func (sm *SessionManager) isSessionValid(session *SessionContext) bool {
 	// Check session timeout
-	timeout, _ := time.ParseDuration(sm.config.SessionTimeout)
+	timeout, _ := time.ParseDuration(sm.config.GetSessionTimeoutString())
 	if time.Since(session.CreatedAt) > timeout {
 		return false
 	}

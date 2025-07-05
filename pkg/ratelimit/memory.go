@@ -203,19 +203,23 @@ func (m *MemoryBackend) IncrementErrorCount(ip string, window time.Duration) err
 
 func (m *MemoryBackend) IsBanned(ip string) (bool, time.Time, string, error) {
 	m.banMutex.RLock()
-	defer m.banMutex.RUnlock()
-
 	ban, exists := m.bans[ip]
+	expired := exists && time.Now().After(ban.ExpiresAt)
+	m.banMutex.RUnlock()
+
 	if !exists {
 		return false, time.Time{}, "", nil
 	}
 
 	// Check if ban has expired
-	if time.Now().After(ban.ExpiresAt) {
-		// Clean up expired ban asynchronously
+	if expired {
+		// Clean up expired ban asynchronously - SAFE now that read lock is released
 		go func() {
 			m.banMutex.Lock()
-			delete(m.bans, ip)
+			// Double-check the ban still exists and is expired
+			if currentBan, stillExists := m.bans[ip]; stillExists && time.Now().After(currentBan.ExpiresAt) {
+				delete(m.bans, ip)
+			}
 			m.banMutex.Unlock()
 		}()
 		return false, time.Time{}, "", nil
@@ -322,50 +326,72 @@ func (m *MemoryBackend) IncrementGlobalTorRequestCount(window time.Duration) err
 // Statistics methods
 
 func (m *MemoryBackend) GetStats() (BackendStats, error) {
-	m.statsMutex.RLock()
-	defer m.statsMutex.RUnlock()
-
-	// Count currently banned IPs
-	m.banMutex.RLock()
-	totalBanned := 0
-	torBanned := 0
+	// Collect all data with minimal lock scopes to avoid deadlocks
 	now := time.Now()
-
-	for ip, ban := range m.bans {
-		if now.Before(ban.ExpiresAt) {
-			totalBanned++
-			if m.torExits[ip] {
-				torBanned++
+	
+	// Get banned IPs data
+	var bannedIPs []string
+	var totalBanned int
+	func() {
+		m.banMutex.RLock()
+		defer m.banMutex.RUnlock()
+		for ip, ban := range m.bans {
+			if now.Before(ban.ExpiresAt) {
+				totalBanned++
+				bannedIPs = append(bannedIPs, ip)
 			}
 		}
+	}()
+
+	// Get Tor exit data
+	var torExitIPs map[string]bool
+	var torExitCount int
+	var torLastUpdate time.Time
+	func() {
+		m.torMutex.RLock()
+		defer m.torMutex.RUnlock()
+		torExitIPs = make(map[string]bool, len(m.torExits))
+		for ip := range m.torExits {
+			torExitIPs[ip] = true
+		}
+		torExitCount = len(m.torExits)
+		torLastUpdate = m.torUpdated
+	}()
+
+	// Count banned Tor exits (now safe without nested locks)
+	torBanned := 0
+	for _, ip := range bannedIPs {
+		if torExitIPs[ip] {
+			torBanned++
+		}
 	}
-	m.banMutex.RUnlock()
 
 	// Count tracked IPs (IPs with any activity)
 	trackedIPs := make(map[string]bool)
 
-	m.connMutex.RLock()
-	for ip := range m.connections {
-		trackedIPs[ip] = true
-	}
-	m.connMutex.RUnlock()
+	func() {
+		m.connMutex.RLock()
+		defer m.connMutex.RUnlock()
+		for ip := range m.connections {
+			trackedIPs[ip] = true
+		}
+	}()
 
-	m.reqMutex.RLock()
-	for ip := range m.requests {
-		trackedIPs[ip] = true
-	}
-	m.reqMutex.RUnlock()
+	func() {
+		m.reqMutex.RLock()
+		defer m.reqMutex.RUnlock()
+		for ip := range m.requests {
+			trackedIPs[ip] = true
+		}
+	}()
 
-	m.errMutex.RLock()
-	for ip := range m.errors {
-		trackedIPs[ip] = true
-	}
-	m.errMutex.RUnlock()
-
-	m.torMutex.RLock()
-	torExitCount := len(m.torExits)
-	torLastUpdate := m.torUpdated
-	m.torMutex.RUnlock()
+	func() {
+		m.errMutex.RLock()
+		defer m.errMutex.RUnlock()
+		for ip := range m.errors {
+			trackedIPs[ip] = true
+		}
+	}()
 
 	return BackendStats{
 		TrackedIPs:    len(trackedIPs),

@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"hkp-plugin-core/pkg/plugin"
+	"github.com/dobrevit/hkp-plugin-core/pkg/plugin"
 )
 
 // HTTP Handler implementations
@@ -364,7 +364,7 @@ func (p *ZeroTrustPlugin) handleRateLimitEvent(event plugin.PluginEvent) error {
 // handleEndpointProtectionEvent handles dynamic endpoint protection requests
 func (p *ZeroTrustPlugin) handleEndpointProtectionEvent(event plugin.PluginEvent) error {
 	data := event.Data
-	
+
 	// Parse the protection request
 	var protectionReq plugin.EndpointProtectionRequest
 	requestData, ok := data["request"].(map[string]interface{})
@@ -386,15 +386,15 @@ func (p *ZeroTrustPlugin) handleEndpointProtectionEvent(event plugin.PluginEvent
 			return fmt.Errorf("failed to parse protection request: %w", err)
 		}
 	}
-	
+
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	
+
 	// Initialize temp protection map if nil
 	if p.config.TempProtectedPaths == nil {
 		p.config.TempProtectedPaths = make(map[string]time.Time)
 	}
-	
+
 	switch protectionReq.Action {
 	case "protect":
 		// Add paths to protected list
@@ -429,7 +429,7 @@ func (p *ZeroTrustPlugin) handleEndpointProtectionEvent(event plugin.PluginEvent
 				}
 			}
 		}
-		
+
 	case "whitelist":
 		// Add paths to public (whitelisted) paths
 		for _, path := range protectionReq.Paths {
@@ -441,7 +441,7 @@ func (p *ZeroTrustPlugin) handleEndpointProtectionEvent(event plugin.PluginEvent
 					"duration", protectionReq.Duration,
 					"requester", protectionReq.RequesterID)
 			}
-			
+
 			// Add to public paths if not already present
 			found := false
 			for _, existingPath := range p.config.PublicPaths {
@@ -458,38 +458,38 @@ func (p *ZeroTrustPlugin) handleEndpointProtectionEvent(event plugin.PluginEvent
 					"reason", protectionReq.Reason)
 			}
 		}
-		
+
 	default:
 		p.host.Logger().Warn("Unknown endpoint protection action",
 			"action", protectionReq.Action,
 			"requester", protectionReq.RequesterID)
 	}
-	
+
 	// Publish confirmation event
 	responseEvent := plugin.PluginEvent{
 		Type:      plugin.EventEndpointProtectionUpdate,
 		Source:    p.Name(),
 		Timestamp: time.Now(),
 		Data: map[string]interface{}{
-			"action":      protectionReq.Action,
-			"paths":       protectionReq.Paths,
-			"status":      "applied",
+			"action":       protectionReq.Action,
+			"paths":        protectionReq.Paths,
+			"status":       "applied",
 			"requester_id": protectionReq.RequesterID,
-			"timestamp":   time.Now(),
+			"timestamp":    time.Now(),
 		},
 	}
-	
+
 	if err := p.host.PublishEvent(responseEvent); err != nil {
 		p.host.Logger().Error("Failed to publish endpoint protection update event", "error", err)
 	}
-	
+
 	return nil
 }
 
 // handleSecurityThreatEvent handles security threat notifications
 func (p *ZeroTrustPlugin) handleSecurityThreatEvent(event plugin.PluginEvent) error {
 	data := event.Data
-	
+
 	// Parse threat information
 	var threatInfo plugin.SecurityThreatInfo
 	threatData, ok := data["threat"].(map[string]interface{})
@@ -511,7 +511,7 @@ func (p *ZeroTrustPlugin) handleSecurityThreatEvent(event plugin.PluginEvent) er
 			return fmt.Errorf("failed to parse threat info: %w", err)
 		}
 	}
-	
+
 	// Log the threat
 	p.host.Logger().Warn("Security threat detected",
 		"threat_type", threatInfo.ThreatType,
@@ -520,15 +520,15 @@ func (p *ZeroTrustPlugin) handleSecurityThreatEvent(event plugin.PluginEvent) er
 		"endpoint", threatInfo.Endpoint,
 		"confidence", threatInfo.Confidence,
 		"description", threatInfo.Description)
-	
+
 	// Find affected sessions
 	sessions := p.sessionManager.GetActiveSessions()
 	for _, session := range sessions {
 		if session.IPAddress == threatInfo.ClientIP {
 			// Record security incident
-			p.riskAssessor.RecordIncident(session.SessionID, threatInfo.ThreatType, 
+			p.riskAssessor.RecordIncident(session.SessionID, threatInfo.ThreatType,
 				threatInfo.Severity, threatInfo.Description)
-			
+
 			// Adjust risk score based on threat severity and confidence
 			riskMultiplier := 1.0
 			switch threatInfo.Severity {
@@ -541,23 +541,23 @@ func (p *ZeroTrustPlugin) handleSecurityThreatEvent(event plugin.PluginEvent) er
 			case "low":
 				riskMultiplier = 1.1
 			}
-			
+
 			// Apply confidence factor
 			riskMultiplier = 1.0 + (riskMultiplier-1.0)*threatInfo.Confidence
-			
+
 			oldRisk := session.RiskScore
 			session.RiskScore = math.Min(1.0, session.RiskScore*riskMultiplier)
-			
+
 			// Log risk increase
 			if session.RiskScore > oldRisk {
 				p.auditLogger.LogRiskIncrease(session, oldRisk, session.RiskScore)
 			}
-			
+
 			// Take action based on recommended action and current risk
 			switch threatInfo.RecommendedAction {
 			case "block":
 				if session.RiskScore > 0.8 || threatInfo.Severity == "critical" {
-					p.sessionManager.TerminateSession(session.SessionID, 
+					p.sessionManager.TerminateSession(session.SessionID,
 						fmt.Sprintf("Security threat: %s", threatInfo.ThreatType))
 					p.auditLogger.LogSessionTermination(session, "security_threat", threatInfo.ThreatType)
 				}
@@ -572,11 +572,11 @@ func (p *ZeroTrustPlugin) handleSecurityThreatEvent(event plugin.PluginEvent) er
 					"session_id", session.SessionID,
 					"threat_type", threatInfo.ThreatType)
 			}
-			
+
 			p.sessionManager.UpdateSession(session)
 		}
 	}
-	
+
 	return nil
 }
 
@@ -584,11 +584,11 @@ func (p *ZeroTrustPlugin) handleSecurityThreatEvent(event plugin.PluginEvent) er
 func (p *ZeroTrustPlugin) cleanupExpiredTempProtections() {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	
+
 	if p.config.TempProtectedPaths == nil {
 		return
 	}
-	
+
 	now := time.Now()
 	for path, expiry := range p.config.TempProtectedPaths {
 		if now.After(expiry) {

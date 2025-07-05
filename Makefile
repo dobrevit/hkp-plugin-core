@@ -129,7 +129,7 @@ install: app
 
 # Run the application
 .PHONY: run
-run: all
+run: plugins app
 	@echo "$(YELLOW)→ Running $(BINARY_NAME)...$(NC)"
 	@cd $(CMD_DIR) && ./$(BINARY_NAME) -config ./config.toml
 

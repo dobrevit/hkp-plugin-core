@@ -37,7 +37,7 @@ run_package_tests() {
     print_info "Testing $name ($package)"
     
     if [ "$COVERAGE" = true ]; then
-        go test -timeout $TEST_TIMEOUT -coverprofile=coverage-$name.out $package
+        go test -timeout $TEST_TIMEOUT -coverprofile="coverage-$name.out" $package
     else
         if [ "$VERBOSE" = true ]; then
             go test -v -timeout $TEST_TIMEOUT $package

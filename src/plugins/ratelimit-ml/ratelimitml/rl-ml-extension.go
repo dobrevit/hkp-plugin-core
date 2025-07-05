@@ -11,7 +11,7 @@ import (
 	"sync"
 	"time"
 
-	"hkp-plugin-core/pkg/plugin"
+	"github.com/dobrevit/hkp-plugin-core/pkg/plugin"
 )
 
 // Plugin constants
@@ -280,10 +280,10 @@ func (p *RateLimitMLPlugin) CreateMiddleware() (func(http.Handler) http.Handler,
 			// Update learning data
 			if p.config.LearningEnabled {
 				learningData := map[string]interface{}{
-					"pattern":      pattern,
-					"duration":     time.Since(startTime),
-					"path":         r.URL.Path,
-					"method":       r.Method,
+					"pattern":  pattern,
+					"duration": time.Since(startTime),
+					"path":     r.URL.Path,
+					"method":   r.Method,
 				}
 				go p.updateLearningData(clientIP, learningData)
 			}
@@ -834,7 +834,7 @@ func (ad *AnomalyDetector) DetectAnomaly(pattern *TrafficPattern) float64 {
 	// Placeholder anomaly detection
 	// In a real implementation, this would use the ML model
 	score := 0.0
-	
+
 	// Simple heuristics for demonstration
 	if pattern.RequestRate > 100 {
 		score += 0.3
@@ -845,7 +845,7 @@ func (ad *AnomalyDetector) DetectAnomaly(pattern *TrafficPattern) float64 {
 	if pattern.IsAnomalous {
 		score += 0.5
 	}
-	
+
 	return score
 }
 
@@ -915,7 +915,7 @@ func (p *RateLimitMLPlugin) handlePatterns(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	p.mu.RUnlock()
-	
+
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"patterns": patterns,
@@ -1045,7 +1045,7 @@ func (pa *PatternAnalyzer) detectBursts(clientIP string) []int {
 	if len(windows) < 2 {
 		return []int{}
 	}
-	
+
 	// Calculate burst pattern based on request spikes
 	bursts := make([]int, 0)
 	for i := 1; i < len(windows); i++ {
@@ -1062,7 +1062,7 @@ func (pa *PatternAnalyzer) calculatePeriodicity(clientIP string) float64 {
 	if len(windows) < 3 {
 		return 0.0
 	}
-	
+
 	// Basic periodicity detection based on request intervals
 	var totalPeriod float64
 	count := 0
@@ -1075,7 +1075,7 @@ func (pa *PatternAnalyzer) calculatePeriodicity(clientIP string) float64 {
 			count++
 		}
 	}
-	
+
 	if count > 0 {
 		return totalPeriod / float64(count)
 	}
@@ -1087,10 +1087,10 @@ func (pa *PatternAnalyzer) calculatePredictability(pattern *TrafficPattern) floa
 	if pattern.Entropy == 0 {
 		return 1.0 // Completely predictable
 	}
-	
+
 	// Combine entropy and periodicity to calculate predictability
 	entropyFactor := 1.0 - math.Min(pattern.Entropy, 1.0)
 	periodicityFactor := pattern.Periodicity
-	
+
 	return (entropyFactor + periodicityFactor) / 2.0
 }

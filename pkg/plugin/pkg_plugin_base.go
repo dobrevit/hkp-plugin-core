@@ -9,8 +9,8 @@ import (
 	"sync"
 	"time"
 
-	"hkp-plugin-core/internal/metrics"
-	"hkp-plugin-core/pkg/storage"
+	"github.com/dobrevit/hkp-plugin-core/internal/metrics"
+	"github.com/dobrevit/hkp-plugin-core/pkg/storage"
 )
 
 // Plugin represents a loadable module that extends Hockeypuck functionality
@@ -103,34 +103,34 @@ const (
 	EventEndpointProtectionUpdate  = "endpoint.protection.update"
 	EventEndpointAccessDenied      = "endpoint.access.denied"
 	EventEndpointAccessGranted     = "endpoint.access.granted"
-	
+
 	// Security events
-	EventSecurityThreatDetected    = "security.threat.detected"
-	EventSecurityAnomalyDetected   = "security.anomaly.detected"
+	EventSecurityThreatDetected     = "security.threat.detected"
+	EventSecurityAnomalyDetected    = "security.anomaly.detected"
 	EventSecurityRateLimitTriggered = "security.ratelimit.triggered"
 )
 
 // EndpointProtectionRequest represents a request to protect/whitelist endpoints
 type EndpointProtectionRequest struct {
-	Action      string   `json:"action"`      // "protect" or "whitelist"
-	Paths       []string `json:"paths"`       // Endpoint paths to protect/whitelist
-	Reason      string   `json:"reason"`      // Reason for the request
+	Action      string   `json:"action"`       // "protect" or "whitelist"
+	Paths       []string `json:"paths"`        // Endpoint paths to protect/whitelist
+	Reason      string   `json:"reason"`       // Reason for the request
 	RequesterID string   `json:"requester_id"` // Plugin requesting the change
-	Temporary   bool     `json:"temporary"`   // Whether the protection is temporary
-	Duration    string   `json:"duration"`    // Duration for temporary protection (e.g., "5m", "1h")
-	Priority    int      `json:"priority"`    // Priority level (higher = more important)
+	Temporary   bool     `json:"temporary"`    // Whether the protection is temporary
+	Duration    string   `json:"duration"`     // Duration for temporary protection (e.g., "5m", "1h")
+	Priority    int      `json:"priority"`     // Priority level (higher = more important)
 }
 
 // SecurityThreatInfo represents information about a detected threat
 type SecurityThreatInfo struct {
-	ThreatType   string  `json:"threat_type"`   // Type of threat (e.g., "malicious_ip", "suspicious_behavior")
-	Severity     string  `json:"severity"`      // "low", "medium", "high", "critical"
-	ClientIP     string  `json:"client_ip"`     // IP address of the threat
-	UserAgent    string  `json:"user_agent"`    // User agent string
-	Endpoint     string  `json:"endpoint"`      // Endpoint being accessed
-	Description  string  `json:"description"`   // Human-readable description
-	Confidence   float64 `json:"confidence"`    // Confidence score (0.0 to 1.0)
-	RecommendedAction string `json:"recommended_action"` // "block", "monitor", "rate_limit"
+	ThreatType        string  `json:"threat_type"`        // Type of threat (e.g., "malicious_ip", "suspicious_behavior")
+	Severity          string  `json:"severity"`           // "low", "medium", "high", "critical"
+	ClientIP          string  `json:"client_ip"`          // IP address of the threat
+	UserAgent         string  `json:"user_agent"`         // User agent string
+	Endpoint          string  `json:"endpoint"`           // Endpoint being accessed
+	Description       string  `json:"description"`        // Human-readable description
+	Confidence        float64 `json:"confidence"`         // Confidence score (0.0 to 1.0)
+	RecommendedAction string  `json:"recommended_action"` // "block", "monitor", "rate_limit"
 }
 
 // PluginEventHandler handles plugin events
@@ -599,6 +599,92 @@ func (g *DependencyGraph) TopologicalSort() ([]string, error) {
 // Server represents the Hockeypuck server (placeholder interface)
 type Server struct {
 	// Server implementation details would go here
+}
+
+// PluginManager manages the entire plugin system
+type PluginManager struct {
+	registry *PluginRegistry
+	host     PluginHost
+	logger   Logger
+	mu       sync.RWMutex
+}
+
+// Logger interface for plugin logging
+type Logger interface {
+	Info(msg string, args ...interface{})
+	Warn(msg string, args ...interface{})
+	Error(msg string, args ...interface{})
+	Debug(msg string, args ...interface{})
+}
+
+// NewPluginManager creates a new plugin manager
+func NewPluginManager(host PluginHost, logger Logger) *PluginManager {
+	registry := NewPluginRegistry(host)
+	return &PluginManager{
+		registry: registry,
+		host:     host,
+		logger:   logger,
+	}
+}
+
+// Register registers a plugin with the manager
+func (pm *PluginManager) Register(plugin Plugin) error {
+	pm.mu.Lock()
+	defer pm.mu.Unlock()
+	return pm.registry.Register(plugin)
+}
+
+// Initialize initializes all registered plugins
+func (pm *PluginManager) Initialize(ctx context.Context, configs map[string]map[string]interface{}) error {
+	pm.mu.RLock()
+	defer pm.mu.RUnlock()
+	return pm.registry.Initialize(ctx, configs)
+}
+
+// Shutdown shuts down all plugins
+func (pm *PluginManager) Shutdown(ctx context.Context) error {
+	pm.mu.RLock()
+	defer pm.mu.RUnlock()
+	return pm.registry.Shutdown(ctx)
+}
+
+// GetPlugin gets a plugin by name
+func (pm *PluginManager) GetPlugin(name string) (Plugin, bool) {
+	pm.mu.RLock()
+	defer pm.mu.RUnlock()
+	return pm.registry.Get(name)
+}
+
+// ListPlugins lists all registered plugins
+func (pm *PluginManager) ListPlugins() []Plugin {
+	pm.mu.RLock()
+	defer pm.mu.RUnlock()
+	return pm.registry.List()
+}
+
+// LoadPlugin loads and initializes a plugin
+func (pm *PluginManager) LoadPlugin(ctx context.Context, plugin Plugin, config map[string]interface{}) error {
+	pm.mu.Lock()
+	defer pm.mu.Unlock()
+
+	// Register the plugin
+	if err := pm.registry.Register(plugin); err != nil {
+		return err
+	}
+
+	// Initialize the plugin
+	return plugin.Initialize(ctx, pm.host, config)
+}
+
+// GetRoutes returns HTTP routes from all plugins
+func (pm *PluginManager) GetRoutes() map[string]http.HandlerFunc {
+	pm.mu.RLock()
+	defer pm.mu.RUnlock()
+
+	routes := make(map[string]http.HandlerFunc)
+	// This is a simplified implementation
+	// In practice, you'd collect routes from plugins that implement HTTP interfaces
+	return routes
 }
 
 // Global plugin registry

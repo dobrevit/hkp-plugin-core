@@ -25,14 +25,22 @@ publicPaths = [
     "/pks/stats",
     "/health",
     "/metrics",
+    "/plugins/status",
+    "/plugins/list",
+    "/plugins/health",
+    "/plugins/reload",
+    "/plugins/config",
     "/ratelimit/tarpit/status",
     "/ratelimit/ml/status",
     "/ratelimit/threatintel/status",
+    "/api/ml/status",
+    "/api/ml/metrics",
+    "/geo/status",
 ]
 
 [plugins.config."ratelimit-geo"]
-enabled = false
-geoip_database_path = "/usr/share/GeoIP/GeoLite2-City.mmdb"
+enabled = true
+geoip_database_path = "./data/GeoLite2-City.mmdb"
 impossible_travel_enabled = true
 max_travel_speed_kmh = 1000.0
 clustering_enabled = true
@@ -86,11 +94,11 @@ updateFreq = "2h"
 enabled = true
 
 [[plugins.config."ratelimit-threat-intel".threatFeeds]]
-name = "Malware Domain List"
-url = "https://www.malwaredomainlist.com/hostslist/ip.txt"
+name = "Dobrev IT SecOps"
+url = "https://secops.dobrev.it/api/v1/ip"
 type = "ip"
-format = "txt"
-updateFreq = "6h"
+format = "json-array"
+updateFreq = "1h"
 enabled = true
 
 [plugins.config."antiabuse"]

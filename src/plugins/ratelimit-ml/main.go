@@ -2,8 +2,8 @@
 package main
 
 import (
-	"hkp-plugin-core/pkg/plugin"
-	"hkp-plugin-core/src/plugins/ratelimit-ml/ratelimitml"
+	"github.com/dobrevit/hkp-plugin-core/pkg/plugin"
+	"github.com/dobrevit/hkp-plugin-core/src/plugins/ratelimit-ml/ratelimitml"
 )
 
 // GetPlugin returns a new instance of the plugin for dynamic loading

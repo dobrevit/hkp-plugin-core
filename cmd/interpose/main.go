@@ -14,14 +14,15 @@ import (
 	"path/filepath"
 	"plugin"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
-	"hkp-plugin-core/config"
-	"hkp-plugin-core/internal/metrics"
-	pluginapi "hkp-plugin-core/pkg/plugin"
-	"hkp-plugin-core/pkg/ratelimit"
-	"hkp-plugin-core/pkg/storage"
+	"github.com/dobrevit/hkp-plugin-core/config"
+	"github.com/dobrevit/hkp-plugin-core/internal/metrics"
+	pluginapi "github.com/dobrevit/hkp-plugin-core/pkg/plugin"
+	"github.com/dobrevit/hkp-plugin-core/pkg/ratelimit"
+	"github.com/dobrevit/hkp-plugin-core/pkg/storage"
 	// Plugins will be loaded dynamically from .so files
 )
 
@@ -38,6 +39,59 @@ type Server struct {
 
 	// Plugin system
 	pluginRegistry *pluginapi.PluginRegistry
+
+	// Enhanced plugin management
+	pluginStates   map[string]PluginState
+	rollbackStates map[string]*PluginSnapshot
+	activeRequests map[string]map[string]*ActiveRequest
+	requestDrainer *RequestDrainer
+	stateMutex     sync.RWMutex
+	acceptingReqs  map[string]bool
+	drainMutex     sync.RWMutex
+}
+
+// Plugin state management
+type PluginState int
+
+const (
+	PluginStateLoading PluginState = iota
+	PluginStateActive
+	PluginStateReloading
+	PluginStateUnloading
+	PluginStateFailed
+	PluginStateDisabled
+)
+
+type PluginSnapshot struct {
+	PluginName    string
+	Configuration map[string]any
+	State         PluginState
+	Timestamp     time.Time
+	Version       int
+}
+
+type ActiveRequest struct {
+	ID         string
+	StartTime  time.Time
+	Context    context.Context
+	Cancel     context.CancelFunc
+	PluginName string
+}
+
+// Request draining for graceful plugin transitions
+type RequestDrainer struct {
+	activeRequests map[string]*ActiveRequest
+	drainTimeout   time.Duration
+	pollInterval   time.Duration
+	mutex          sync.RWMutex
+}
+
+func NewRequestDrainer() *RequestDrainer {
+	return &RequestDrainer{
+		activeRequests: make(map[string]*ActiveRequest),
+		drainTimeout:   60 * time.Second,
+		pollInterval:   500 * time.Millisecond,
+	}
 }
 
 // ServerPluginHost implements the PluginHost interface for the server
@@ -172,11 +226,16 @@ func NewServer(cfg *config.Config) *Server {
 	}))
 
 	server := &Server{
-		config:    cfg,
-		storage:   storageSystem,
-		metrics:   metricsSystem,
-		logger:    logger,
-		startTime: time.Now(),
+		config:         cfg,
+		storage:        storageSystem,
+		metrics:        metricsSystem,
+		logger:         logger,
+		startTime:      time.Now(),
+		pluginStates:   make(map[string]PluginState),
+		rollbackStates: make(map[string]*PluginSnapshot),
+		activeRequests: make(map[string]map[string]*ActiveRequest),
+		acceptingReqs:  make(map[string]bool),
+		requestDrainer: NewRequestDrainer(),
 	}
 
 	// Initialize plugin host
@@ -229,6 +288,13 @@ func (s *Server) Initialize() error {
 	for _, p := range s.pluginRegistry.List() {
 		s.logger.Info("Initializing plugin", "name", p.Name())
 
+		// Initialize plugin state tracking
+		s.stateMutex.Lock()
+		s.pluginStates[p.Name()] = PluginStateLoading
+		s.activeRequests[p.Name()] = make(map[string]*ActiveRequest)
+		s.acceptingReqs[p.Name()] = false
+		s.stateMutex.Unlock()
+
 		// Get config for this plugin
 		var config map[string]interface{}
 		if cfg, exists := pluginConfigs[p.Name()]; exists {
@@ -239,8 +305,15 @@ func (s *Server) Initialize() error {
 
 		if err := p.Initialize(ctx, s.pluginHost, config); err != nil {
 			s.logger.Error("Failed to initialize plugin", "name", p.Name(), "error", err)
+			s.stateMutex.Lock()
+			s.pluginStates[p.Name()] = PluginStateFailed
+			s.stateMutex.Unlock()
 		} else {
 			s.logger.Info("Successfully initialized plugin", "name", p.Name())
+			s.stateMutex.Lock()
+			s.pluginStates[p.Name()] = PluginStateActive
+			s.acceptingReqs[p.Name()] = true
+			s.stateMutex.Unlock()
 		}
 	}
 
@@ -356,6 +429,13 @@ func (s *Server) createHandler() http.Handler {
 	mux.HandleFunc("/pks/stats", s.handleStats)
 	mux.Handle("/metrics", s.metrics.PrometheusHandler())
 
+	// Register plugin management endpoints
+	mux.HandleFunc("/plugins/status", s.handlePluginsStatus)
+	mux.HandleFunc("/plugins/list", s.handlePluginsList)
+	mux.HandleFunc("/plugins/health", s.handlePluginsHealth)
+	mux.HandleFunc("/plugins/reload", s.handlePluginReload)
+	mux.HandleFunc("/plugins/config", s.handlePluginConfig)
+
 	// Register plugin handlers
 	if hostImpl, ok := s.pluginHost.(*ServerPluginHost); ok {
 		for pattern, handler := range hostImpl.handlers {
@@ -366,7 +446,7 @@ func (s *Server) createHandler() http.Handler {
 	// Build middleware chain
 	var handler http.Handler = mux
 
-	// Apply plugin middlewares (in reverse order so they execute in registration order)
+	// Apply plugin middlewares with request tracking
 	var middlewares []func(http.Handler) http.Handler
 	if hostImpl, ok := s.pluginHost.(*ServerPluginHost); ok {
 		middlewares = hostImpl.middlewares
@@ -375,7 +455,10 @@ func (s *Server) createHandler() http.Handler {
 		}
 	}
 
-	// Apply middlewares
+	// Apply request tracking middleware first
+	handler = s.requestTrackingMiddleware(handler)
+
+	// Apply plugin middlewares (in reverse order so they execute in registration order)
 	for i := len(middlewares) - 1; i >= 0; i-- {
 		handler = middlewares[i](handler)
 	}
@@ -445,6 +528,417 @@ func (s *Server) handleStats(w http.ResponseWriter, r *http.Request) {
 	if err := json.NewEncoder(w).Encode(stats); err != nil {
 		http.Error(w, "Failed to encode stats", http.StatusInternalServerError)
 		return
+	}
+}
+
+// Plugin management endpoints
+
+// handlePluginsStatus provides overall plugin system status
+func (s *Server) handlePluginsStatus(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Enhanced status with state information
+	s.stateMutex.RLock()
+	stateInfo := make(map[string]string)
+	for pluginName, state := range s.pluginStates {
+		stateInfo[pluginName] = s.getStateString(state)
+	}
+	s.stateMutex.RUnlock()
+
+	status := map[string]any{
+		"plugin_system": map[string]any{
+			"enabled":         true,
+			"total_plugins":   len(s.pluginRegistry.List()),
+			"active_plugins":  s.countActivePlugins(),
+			"plugin_dir":      s.config.Plugins.Directory,
+			"active_requests": s.getActiveRequestCount(),
+			"plugin_states":   stateInfo,
+		},
+		"health_status": s.getPluginHealthSummary(),
+		"uptime":        time.Since(s.startTime).String(),
+		"timestamp":     time.Now().Unix(),
+		"draining": map[string]any{
+			"timeout":       s.requestDrainer.drainTimeout.String(),
+			"poll_interval": s.requestDrainer.pollInterval.String(),
+		},
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(status); err != nil {
+		http.Error(w, "Failed to encode plugin status", http.StatusInternalServerError)
+		return
+	}
+}
+
+// handlePluginsList provides detailed list of all plugins
+func (s *Server) handlePluginsList(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	plugins := []map[string]any{}
+	for _, plugin := range s.pluginRegistry.List() {
+		pluginInfo := map[string]any{
+			"name":        plugin.Name(),
+			"version":     plugin.Version(),
+			"description": plugin.Description(),
+			"status":      "active", // All loaded plugins are considered active
+			"health":      s.getPluginHealth(plugin.Name()),
+		}
+		plugins = append(plugins, pluginInfo)
+	}
+
+	response := map[string]any{
+		"plugins":     plugins,
+		"total_count": len(plugins),
+		"timestamp":   time.Now().Unix(),
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		http.Error(w, "Failed to encode plugins list", http.StatusInternalServerError)
+		return
+	}
+}
+
+// handlePluginsHealth provides health check for all plugins
+func (s *Server) handlePluginsHealth(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	health := map[string]any{
+		"overall_status": "healthy", // Will be determined by individual plugin health
+		"plugins":        map[string]any{},
+		"timestamp":      time.Now().Unix(),
+	}
+
+	overallHealthy := true
+	pluginHealthMap := make(map[string]any)
+
+	for _, plugin := range s.pluginRegistry.List() {
+		pluginHealth := s.getPluginHealth(plugin.Name())
+		pluginHealthMap[plugin.Name()] = pluginHealth
+
+		if status, ok := pluginHealth["status"].(string); ok && status != "healthy" {
+			overallHealthy = false
+		}
+	}
+
+	health["plugins"] = pluginHealthMap
+	if !overallHealthy {
+		health["overall_status"] = "degraded"
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(health); err != nil {
+		http.Error(w, "Failed to encode health status", http.StatusInternalServerError)
+		return
+	}
+}
+
+// Helper methods for plugin management
+
+func (s *Server) countActivePlugins() int {
+	// All loaded plugins are considered active
+	return len(s.pluginRegistry.List())
+}
+
+func (s *Server) getPluginHealthSummary() map[string]any {
+	healthy := 0
+	total := len(s.pluginRegistry.List())
+
+	for _, plugin := range s.pluginRegistry.List() {
+		health := s.getPluginHealth(plugin.Name())
+		if status, ok := health["status"].(string); ok && status == "healthy" {
+			healthy++
+		}
+	}
+
+	return map[string]any{
+		"healthy_count":   healthy,
+		"unhealthy_count": total - healthy,
+		"total_count":     total,
+		"overall_status": func() string {
+			if healthy == total {
+				return "healthy"
+			} else if healthy > 0 {
+				return "degraded"
+			}
+			return "unhealthy"
+		}(),
+	}
+}
+
+func (s *Server) getPluginHealth(pluginName string) map[string]any {
+	// Enhanced health check with state tracking
+	s.stateMutex.RLock()
+	state, stateExists := s.pluginStates[pluginName]
+	accepting, acceptingExists := s.acceptingReqs[pluginName]
+	s.stateMutex.RUnlock()
+
+	status := "healthy"
+	if !stateExists || state == PluginStateFailed {
+		status = "unhealthy"
+	} else if state == PluginStateReloading || state == PluginStateLoading {
+		status = "transitioning"
+	} else if !acceptingExists || !accepting {
+		status = "degraded"
+	}
+
+	health := map[string]any{
+		"status":             status,
+		"state":              s.getStateString(state),
+		"accepting_requests": accepting,
+		"last_check":         time.Now().Unix(),
+		"checks":             map[string]any{},
+	}
+
+	// Check if plugin has registered handlers
+	if hostImpl, ok := s.pluginHost.(*ServerPluginHost); ok {
+		handlerCount := 0
+		for pattern := range hostImpl.handlers {
+			// Count handlers that might belong to this plugin
+			if strings.Contains(pattern, strings.ToLower(pluginName)) {
+				handlerCount++
+			}
+		}
+		health["checks"].(map[string]any)["handlers_registered"] = handlerCount > 0
+		health["checks"].(map[string]any)["handler_count"] = handlerCount
+	}
+
+	// Check if plugin has active tasks
+	if hostImpl, ok := s.pluginHost.(*ServerPluginHost); ok {
+		taskCount := 0
+		for taskName := range hostImpl.tasks {
+			if strings.Contains(taskName, pluginName) {
+				taskCount++
+			}
+		}
+		health["checks"].(map[string]any)["background_tasks"] = taskCount
+	}
+
+	// Add active request count
+	s.stateMutex.RLock()
+	if activeReqs, exists := s.activeRequests[pluginName]; exists {
+		health["checks"].(map[string]any)["active_requests"] = len(activeReqs)
+	} else {
+		health["checks"].(map[string]any)["active_requests"] = 0
+	}
+	s.stateMutex.RUnlock()
+
+	return health
+}
+
+func (s *Server) getStateString(state PluginState) string {
+	switch state {
+	case PluginStateLoading:
+		return "loading"
+	case PluginStateActive:
+		return "active"
+	case PluginStateReloading:
+		return "reloading"
+	case PluginStateUnloading:
+		return "unloading"
+	case PluginStateFailed:
+		return "failed"
+	case PluginStateDisabled:
+		return "disabled"
+	default:
+		return "unknown"
+	}
+}
+
+// handlePluginReload provides hot reload capability for individual plugins with graceful draining
+func (s *Server) handlePluginReload(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	pluginName := r.URL.Query().Get("plugin")
+	if pluginName == "" {
+		http.Error(w, "Plugin name is required", http.StatusBadRequest)
+		return
+	}
+
+	result := map[string]any{
+		"plugin":    pluginName,
+		"timestamp": time.Now().Unix(),
+	}
+
+	// Find the plugin
+	var targetPlugin pluginapi.Plugin
+	for _, plugin := range s.pluginRegistry.List() {
+		if plugin.Name() == pluginName {
+			targetPlugin = plugin
+			break
+		}
+	}
+
+	if targetPlugin == nil {
+		result["status"] = "error"
+		result["message"] = "Plugin not found"
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotFound)
+		json.NewEncoder(w).Encode(result)
+		return
+	}
+
+	s.logger.Info("Attempting to reload plugin with graceful draining", "plugin", pluginName)
+
+	// Create rollback state before making changes
+	if err := s.createRollbackSnapshot(pluginName); err != nil {
+		s.logger.Warn("Failed to create rollback snapshot", "plugin", pluginName, "error", err)
+	}
+
+	// Transition to reloading state and drain requests
+	if err := s.transitionToReloading(pluginName); err != nil {
+		result["status"] = "error"
+		result["message"] = "Failed to transition to reloading: " + err.Error()
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(result)
+		return
+	}
+
+	// Graceful shutdown with request draining
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	if err := targetPlugin.Shutdown(shutdownCtx); err != nil {
+		s.logger.Error("Failed to shutdown plugin for reload", "plugin", pluginName, "error", err)
+		// Attempt rollback
+		s.rollbackPlugin(pluginName)
+		result["status"] = "error"
+		result["message"] = "Failed to shutdown plugin: " + err.Error()
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(result)
+		return
+	}
+
+	// Re-initialize the plugin with current configuration
+	var config map[string]any
+	if cfg, exists := s.config.Plugins.Config[pluginName]; exists {
+		config = cfg
+	} else {
+		config = make(map[string]any)
+	}
+
+	if err := targetPlugin.Initialize(context.Background(), s.pluginHost, config); err != nil {
+		s.logger.Error("Failed to reinitialize plugin after reload", "plugin", pluginName, "error", err)
+		// Attempt rollback
+		s.rollbackPlugin(pluginName)
+		result["status"] = "error"
+		result["message"] = "Failed to reinitialize plugin: " + err.Error()
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(result)
+		return
+	}
+
+	// Transition back to active state
+	s.stateMutex.Lock()
+	s.pluginStates[pluginName] = PluginStateActive
+	s.acceptingReqs[pluginName] = true
+	s.stateMutex.Unlock()
+
+	s.logger.Info("Plugin reloaded successfully", "plugin", pluginName)
+	result["status"] = "success"
+	result["message"] = "Plugin reloaded successfully with graceful draining"
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(result)
+}
+
+// handlePluginConfig provides configuration management for plugins
+func (s *Server) handlePluginConfig(w http.ResponseWriter, r *http.Request) {
+	pluginName := r.URL.Query().Get("plugin")
+	if pluginName == "" {
+		http.Error(w, "Plugin name is required", http.StatusBadRequest)
+		return
+	}
+
+	switch r.Method {
+	case http.MethodGet:
+		// Get current plugin configuration
+		config, exists := s.config.Plugins.Config[pluginName]
+		if !exists {
+			config = make(map[string]any)
+		}
+
+		response := map[string]any{
+			"plugin":    pluginName,
+			"config":    config,
+			"timestamp": time.Now().Unix(),
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(response)
+
+	case http.MethodPut:
+		// Update plugin configuration
+		var newConfig map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&newConfig); err != nil {
+			http.Error(w, "Invalid JSON configuration", http.StatusBadRequest)
+			return
+		}
+
+		// Update configuration
+		s.config.Plugins.Config[pluginName] = newConfig
+
+		// Find and reinitialize the plugin with new config
+		var targetPlugin pluginapi.Plugin
+		for _, plugin := range s.pluginRegistry.List() {
+			if plugin.Name() == pluginName {
+				targetPlugin = plugin
+				break
+			}
+		}
+
+		result := map[string]any{
+			"plugin":    pluginName,
+			"timestamp": time.Now().Unix(),
+		}
+
+		if targetPlugin != nil {
+			// Shutdown and reinitialize with new config
+			shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+
+			if err := targetPlugin.Shutdown(shutdownCtx); err != nil {
+				s.logger.Error("Failed to shutdown plugin for config update", "plugin", pluginName, "error", err)
+			}
+
+			if err := targetPlugin.Initialize(context.Background(), s.pluginHost, newConfig); err != nil {
+				s.logger.Error("Failed to reinitialize plugin with new config", "plugin", pluginName, "error", err)
+				result["status"] = "error"
+				result["message"] = "Failed to apply new configuration: " + err.Error()
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusInternalServerError)
+				json.NewEncoder(w).Encode(result)
+				return
+			}
+
+			s.logger.Info("Plugin configuration updated successfully", "plugin", pluginName)
+			result["status"] = "success"
+			result["message"] = "Configuration updated and plugin reloaded"
+		} else {
+			result["status"] = "warning"
+			result["message"] = "Configuration updated but plugin not found for reload"
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(result)
+
+	default:
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 	}
 }
 
@@ -569,6 +1063,142 @@ func statusClass(statusCode int) string {
 	default:
 		return "unknown"
 	}
+}
+
+// Request tracking middleware for graceful plugin transitions
+func (s *Server) requestTrackingMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Generate unique request ID
+		requestID := fmt.Sprintf("%d-%s", time.Now().UnixNano(), r.RemoteAddr)
+
+		// Create request context with cancellation
+		reqCtx, cancel := context.WithCancel(r.Context())
+		defer cancel()
+
+		// Track request in drainer
+		req := &ActiveRequest{
+			ID:        requestID,
+			StartTime: time.Now(),
+			Context:   reqCtx,
+			Cancel:    cancel,
+		}
+
+		s.requestDrainer.mutex.Lock()
+		s.requestDrainer.activeRequests[requestID] = req
+		s.requestDrainer.mutex.Unlock()
+
+		// Remove request when done
+		defer func() {
+			s.requestDrainer.mutex.Lock()
+			delete(s.requestDrainer.activeRequests, requestID)
+			s.requestDrainer.mutex.Unlock()
+		}()
+
+		// Update request context
+		r = r.WithContext(reqCtx)
+
+		next.ServeHTTP(w, r)
+	})
+}
+
+// Enhanced state management functions
+func (s *Server) transitionToReloading(pluginName string) error {
+	s.stateMutex.Lock()
+	defer s.stateMutex.Unlock()
+
+	// Stop accepting new requests for this plugin
+	s.acceptingReqs[pluginName] = false
+	s.pluginStates[pluginName] = PluginStateReloading
+
+	// Drain active requests
+	return s.drainPluginRequests(pluginName)
+}
+
+func (s *Server) drainPluginRequests(pluginName string) error {
+	s.logger.Info("Draining requests for plugin", "plugin", pluginName)
+
+	// Wait for active requests to complete
+	deadline := time.Now().Add(s.requestDrainer.drainTimeout)
+
+	for time.Now().Before(deadline) {
+		activeCount := s.getActiveRequestCount()
+		if activeCount == 0 {
+			break
+		}
+
+		s.logger.Debug("Waiting for active requests", "count", activeCount, "plugin", pluginName)
+		time.Sleep(s.requestDrainer.pollInterval)
+	}
+
+	// Force-cancel remaining requests if needed
+	remaining := s.getActiveRequestCount()
+	if remaining > 0 {
+		s.logger.Warn("Force-canceling remaining requests", "count", remaining, "plugin", pluginName)
+		s.requestDrainer.mutex.Lock()
+		for _, req := range s.requestDrainer.activeRequests {
+			req.Cancel()
+		}
+		s.requestDrainer.mutex.Unlock()
+	}
+
+	return nil
+}
+
+func (s *Server) getActiveRequestCount() int {
+	s.requestDrainer.mutex.RLock()
+	defer s.requestDrainer.mutex.RUnlock()
+	return len(s.requestDrainer.activeRequests)
+}
+
+func (s *Server) createRollbackSnapshot(pluginName string) error {
+	s.stateMutex.Lock()
+	defer s.stateMutex.Unlock()
+
+	currentState, exists := s.pluginStates[pluginName]
+	if !exists {
+		return fmt.Errorf("plugin %s not found in state map", pluginName)
+	}
+
+	snapshot := &PluginSnapshot{
+		PluginName:    pluginName,
+		State:         currentState,
+		Timestamp:     time.Now(),
+		Version:       1, // Simplified versioning for now
+		Configuration: make(map[string]any),
+	}
+
+	// Copy current configuration
+	if cfg, exists := s.config.Plugins.Config[pluginName]; exists {
+		for k, v := range cfg {
+			snapshot.Configuration[k] = v
+		}
+	}
+
+	s.rollbackStates[pluginName] = snapshot
+	s.logger.Debug("Created rollback snapshot", "plugin", pluginName)
+	return nil
+}
+
+func (s *Server) rollbackPlugin(pluginName string) error {
+	s.stateMutex.Lock()
+	defer s.stateMutex.Unlock()
+
+	snapshot, exists := s.rollbackStates[pluginName]
+	if !exists {
+		s.logger.Warn("No rollback snapshot available", "plugin", pluginName)
+		return fmt.Errorf("no rollback snapshot for plugin %s", pluginName)
+	}
+
+	s.logger.Info("Rolling back plugin to previous state", "plugin", pluginName)
+
+	// Restore previous state
+	s.pluginStates[pluginName] = snapshot.State
+	s.acceptingReqs[pluginName] = (snapshot.State == PluginStateActive)
+
+	// Clean up snapshot
+	delete(s.rollbackStates, pluginName)
+
+	return nil
 }
 
 // Stop the server

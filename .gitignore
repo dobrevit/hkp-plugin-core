@@ -4,6 +4,7 @@
 *.dll
 *.so
 *.dylib
+*.tar.gz
 
 # Test binary, built with `go test -c`
 *.test
@@ -57,6 +58,7 @@ bower_components
 
 # node_modules (if any JS tooling is used)
 node_modules/
+vendor/
 
 # Temporary files
 tmp/
@@ -125,7 +127,7 @@ coverage.xml
 # Application specific
 /hkp-plugin
 /hkp-plugin.exe
-/cmd/interpose/interpose
+cmd/interpose/interpose
 *.cache
 *.data
 
