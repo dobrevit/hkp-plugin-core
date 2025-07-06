@@ -1,6 +1,7 @@
 package security
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -241,7 +242,7 @@ func (fsal *FileSecurityAuditLogger) logEvent(event *SecurityAuditEvent) {
 	defer fsal.mutex.Unlock()
 
 	// Log to structured logger
-	fsal.logger.Log(nil, fsal.severityToLogLevel(event.Severity), "security_audit",
+	fsal.logger.Log(context.TODO(), fsal.severityToLogLevel(event.Severity), "security_audit",
 		"event_type", event.EventType,
 		"source", event.Source,
 		"target", event.Target,

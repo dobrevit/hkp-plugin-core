@@ -94,13 +94,73 @@ type Record struct {
 }
 
 // PrimaryKey represents an OpenPGP primary key
-// This is our own implementation, not copying AGPL structures
+// This is our own implementation, compatible with Hockeypuck's structure
 type PrimaryKey struct {
-	UUID         string
-	RFingerprint string
-	KeyID        string
-	MD5          string
-	// Add other fields as needed for compatibility
+	PublicKey
+
+	// Primary key specific fields
+	MD5    string // MD5 hash of the key material
+	Length int    // Total length of key material including packets
+
+	// Associated data
+	SubKeys []*SubKey
+	UserIDs []*UserID
+}
+
+// PublicKey represents the base public key information
+type PublicKey struct {
+	Packet
+
+	// Key identifiers (reversed for efficient prefix search)
+	RFingerprint string // Reversed fingerprint (40 hex chars)
+	RKeyID       string // Reversed key ID (16 hex chars)
+	RShortID     string // Reversed short ID (8 hex chars)
+
+	// Key metadata
+	Version    uint8     // OpenPGP version (3 or 4)
+	Creation   time.Time // Key creation timestamp
+	Expiration time.Time // Key expiration timestamp (zero if none)
+	Algorithm  int       // Public key algorithm
+	BitLen     int       // Bit length of the key
+	Curve      string    // ECC curve name (empty for non-ECC)
+
+	// Associated signatures
+	Signatures []*Signature
+}
+
+// Packet represents raw OpenPGP packet data
+type Packet struct {
+	UUID   string // Unique identifier (usually RFingerprint)
+	Tag    uint8  // OpenPGP packet tag type
+	Count  int    // Number of times this packet occurs
+	Packet []byte // Raw packet bytes
+}
+
+// SubKey represents a subkey
+type SubKey struct {
+	PublicKey
+}
+
+// UserID represents a user identity
+type UserID struct {
+	Packet
+
+	Keywords []string // Indexed keywords for search
+
+	// Associated signatures
+	Signatures []*Signature
+}
+
+// Signature represents an OpenPGP signature
+type Signature struct {
+	Packet
+
+	SigType          uint8     // Signature type
+	RIssuerKeyID     string    // Reversed issuer key ID
+	Creation         time.Time // Signature creation time
+	Expiration       time.Time // Signature expiration time
+	RevocationReason *uint8    // Revocation reason code if revoked
+	Primary          bool      // Whether this is a primary user ID signature
 }
 
 // KeyChange interface for storage notifications
