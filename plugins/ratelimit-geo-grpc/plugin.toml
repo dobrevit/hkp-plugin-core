@@ -1,0 +1,29 @@
+[plugin]
+name = "ratelimit-geo"
+version = "1.0.0"
+description = "Geospatial analysis and impossible travel detection for rate limiting"
+executable = "ratelimit-geo-grpc"
+protocol_version = "1.0"
+
+[plugin.capabilities]
+rate_limiting = true
+geographic_analysis = true
+clustering_detection = true
+impossible_travel = true
+
+[plugin.dependencies]
+
+[plugin.config]
+enabled = true
+geoip_database_path = "/usr/share/GeoIP/GeoLite2-City.mmdb"
+tracking_ttl = "24h"
+max_locations = 100
+impossible_travel_enabled = true
+max_travel_speed_kmh = 1000.0
+clustering_enabled = true
+cluster_radius_km = 50.0
+cluster_size_threshold = 5
+cluster_time_window = "1h"
+ban_duration = "1h"
+impossible_travel_ban = "6h"
+clustering_ban = "2h"

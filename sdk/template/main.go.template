@@ -1,0 +1,239 @@
+// {{.PluginName}} - gRPC Plugin Implementation
+package main
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"log"
+	"net"
+	"os"
+	"sync"
+	"time"
+
+	"github.com/dobrevit/hkp-plugin-core/pkg/grpc/proto"
+	"google.golang.org/grpc"
+)
+
+// Plugin constants
+const (
+	PluginName    = "{{.PluginName}}"
+	PluginVersion = "{{.PluginVersion}}"
+	Priority      = {{.Priority}}
+)
+
+// {{.StructName}} implements gRPC-based {{.Description}}
+type {{.StructName}} struct {
+	proto.UnimplementedHKPPluginServer
+	config *{{.ConfigName}}
+	// Add your components here
+	mu sync.RWMutex
+}
+
+// {{.ConfigName}} holds plugin configuration
+type {{.ConfigName}} struct {
+	Enabled bool `json:"enabled"`
+	// Add your configuration fields here
+}
+
+// New{{.StructName}} creates a new plugin instance
+func New{{.StructName}}() *{{.StructName}} {
+	config := &{{.ConfigName}}{
+		Enabled: true,
+		// Initialize default configuration
+	}
+
+	return &{{.StructName}}{
+		config: config,
+		// Initialize your components here
+	}
+}
+
+// Initialize implements the gRPC HKPPlugin interface
+func (p *{{.StructName}}) Initialize(ctx context.Context, req *proto.InitRequest) (*proto.InitResponse, error) {
+	// Parse configuration
+	if req.ConfigJson != "" {
+		if err := json.Unmarshal([]byte(req.ConfigJson), p.config); err != nil {
+			return &proto.InitResponse{
+				Success: false,
+				Error:   fmt.Sprintf("failed to parse config: %v", err),
+			}, nil
+		}
+	}
+
+	// Initialize your components here
+	
+	// Start background tasks if needed
+	// go p.runBackgroundTask(ctx)
+
+	log.Printf("{{.PluginName}} plugin initialized - enabled: %t", p.config.Enabled)
+
+	return &proto.InitResponse{
+		Success: true,
+		Info: &proto.PluginInfo{
+			Name:         PluginName,
+			Version:      PluginVersion,
+			Description:  "{{.Description}}",
+			Capabilities: []string{ {{range .Capabilities}}"{{.}}", {{end}} },
+		},
+	}, nil
+}
+
+// HandleHTTPRequest implements HTTP request processing
+func (p *{{.StructName}}) HandleHTTPRequest(ctx context.Context, req *proto.HTTPRequest) (*proto.HTTPResponse, error) {
+	// Skip if not enabled
+	if !p.config.Enabled {
+		return &proto.HTTPResponse{
+			StatusCode:    200,
+			ContinueChain: true,
+		}, nil
+	}
+
+	// Extract client IP
+	clientIP := p.extractClientIP(req)
+	
+	// Implement your HTTP request processing logic here
+	_ = clientIP
+
+	// Add your custom headers
+	headers := map[string]string{
+		"X-{{.HeaderPrefix}}-Plugin": fmt.Sprintf("%s/%s", PluginName, PluginVersion),
+	}
+
+	return &proto.HTTPResponse{
+		StatusCode:    200,
+		Headers:       headers,
+		ContinueChain: true,
+	}, nil
+}
+
+// CheckRateLimit implements rate limiting
+func (p *{{.StructName}}) CheckRateLimit(ctx context.Context, req *proto.RateLimitCheck) (*proto.RateLimitResponse, error) {
+	if !p.config.Enabled {
+		return &proto.RateLimitResponse{Allowed: true}, nil
+	}
+
+	// Implement your rate limiting logic here
+	
+	return &proto.RateLimitResponse{Allowed: true}, nil
+}
+
+// Helper methods
+
+func (p *{{.StructName}}) extractClientIP(req *proto.HTTPRequest) string {
+	// Check X-Forwarded-For
+	if xForwardedFor, exists := req.Headers["X-Forwarded-For"]; exists {
+		return xForwardedFor
+	}
+
+	// Check X-Real-IP
+	if xRealIP, exists := req.Headers["X-Real-IP"]; exists {
+		return xRealIP
+	}
+
+	return req.RemoteAddr
+}
+
+// Required gRPC methods
+
+func (p *{{.StructName}}) GetInfo(ctx context.Context, req *proto.Empty) (*proto.PluginInfo, error) {
+	return &proto.PluginInfo{
+		Name:         PluginName,
+		Version:      PluginVersion,
+		Description:  "{{.Description}}",
+		Capabilities: []string{ {{range .Capabilities}}"{{.}}", {{end}} },
+		Metadata: map[string]string{
+			"priority": fmt.Sprintf("%d", Priority),
+			"enabled":  fmt.Sprintf("%t", p.config.Enabled),
+		},
+	}, nil
+}
+
+func (p *{{.StructName}}) HandleKeyChange(ctx context.Context, req *proto.KeyChangeEvent) (*proto.Event, error) {
+	// Process key changes if needed
+	eventData := map[string]string{
+		"fingerprint": req.Fingerprint,
+		"processed":   "false",
+	}
+
+	dataBytes, _ := json.Marshal(eventData)
+
+	return &proto.Event{
+		Type:      "{{.PluginName}}.key.processed",
+		Source:    PluginName,
+		Timestamp: time.Now().Unix(),
+		Data:      dataBytes,
+	}, nil
+}
+
+func (p *{{.StructName}}) SubscribeEvents(req *proto.EventFilter, stream proto.HKPPlugin_SubscribeEventsServer) error {
+	<-stream.Context().Done()
+	return nil
+}
+
+func (p *{{.StructName}}) PublishEvent(ctx context.Context, req *proto.Event) (*proto.Empty, error) {
+	// Process events from other plugins if needed
+	return &proto.Empty{}, nil
+}
+
+func (p *{{.StructName}}) QueryStorage(ctx context.Context, req *proto.StorageQuery) (*proto.StorageResponse, error) {
+	return &proto.StorageResponse{
+		Success: false,
+		Error:   "Storage queries not supported by {{.PluginName}} plugin",
+	}, nil
+}
+
+func (p *{{.StructName}}) ReportThreat(ctx context.Context, req *proto.ThreatInfo) (*proto.Empty, error) {
+	// Process threat reports if needed
+	return &proto.Empty{}, nil
+}
+
+func (p *{{.StructName}}) HealthCheck(ctx context.Context, req *proto.Empty) (*proto.HealthStatus, error) {
+	status := proto.HealthStatus_HEALTHY
+	message := "{{.PluginName}} plugin is healthy"
+
+	return &proto.HealthStatus{
+		Status:    status,
+		Message:   message,
+		Timestamp: time.Now().Unix(),
+		Details: map[string]string{
+			"enabled": fmt.Sprintf("%t", p.config.Enabled),
+		},
+	}, nil
+}
+
+func (p *{{.StructName}}) Shutdown(ctx context.Context, req *proto.ShutdownRequest) (*proto.ShutdownResponse, error) {
+	log.Printf("{{.PluginName}} plugin shutting down...")
+
+	// Cleanup resources here
+
+	return &proto.ShutdownResponse{Success: true}, nil
+}
+
+func main() {
+	// Get gRPC address from environment
+	address := os.Getenv("PLUGIN_GRPC_ADDRESS")
+	if address == "" {
+		address = "localhost:{{.DefaultPort}}"
+	}
+
+	// Create listener
+	lis, err := net.Listen("tcp", address)
+	if err != nil {
+		log.Fatalf("Failed to listen: %v", err)
+	}
+
+	// Create gRPC server
+	grpcServer := grpc.NewServer()
+
+	// Create and register plugin
+	plugin := New{{.StructName}}()
+	proto.RegisterHKPPluginServer(grpcServer, plugin)
+
+	log.Printf("{{.PluginName}} gRPC plugin starting on %s", address)
+
+	// Start serving
+	if err := grpcServer.Serve(lis); err != nil {
+		log.Fatalf("Failed to serve: %v", err)
+	}
+}

@@ -1,0 +1,300 @@
+version: '3.8'
+
+services:
+  # PostgreSQL database for Hockeypuck
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: hockeypuck
+      POSTGRES_USER: hockeypuck
+      POSTGRES_PASSWORD: hockeypuck
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U hockeypuck"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - hockeypuck-net
+
+  # Redis for plugin rate limiting and caching
+  redis:
+    image: redis:7-alpine
+    command: redis-server --appendonly yes
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - hockeypuck-net
+
+  # gRPC Plugin Services
+  plugin-antiabuse:
+    build:
+      context: .
+      dockerfile: Dockerfile.plugins
+      args:
+        PLUGIN_NAME: antiabuse-grpc
+    environment:
+      PLUGIN_GRPC_ADDRESS: "0.0.0.0:50001"
+      REDIS_URL: "redis://redis:6379"
+    networks:
+      - hockeypuck-net
+    healthcheck:
+      test: ["CMD", "grpc_health_probe", "-addr=localhost:50001"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+
+  plugin-mlabuse:
+    build:
+      context: .
+      dockerfile: Dockerfile.plugins
+      args:
+        PLUGIN_NAME: mlabuse-grpc
+    environment:
+      PLUGIN_GRPC_ADDRESS: "0.0.0.0:50002"
+      ML_MODEL_PATH: "/var/lib/plugins/ml/models"
+    volumes:
+      - ml-models:/var/lib/plugins/ml/models
+    networks:
+      - hockeypuck-net
+    healthcheck:
+      test: ["CMD", "grpc_health_probe", "-addr=localhost:50002"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+
+  plugin-geo:
+    build:
+      context: .
+      dockerfile: Dockerfile.plugins
+      args:
+        PLUGIN_NAME: ratelimit-geo-grpc
+    environment:
+      PLUGIN_GRPC_ADDRESS: "0.0.0.0:50003"
+      GEOIP_DB_PATH: "/var/lib/plugins/geoip/GeoLite2-City.mmdb"
+    volumes:
+      - geoip-data:/var/lib/plugins/geoip
+    networks:
+      - hockeypuck-net
+    healthcheck:
+      test: ["CMD", "grpc_health_probe", "-addr=localhost:50003"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+
+  plugin-ml-ratelimit:
+    build:
+      context: .
+      dockerfile: Dockerfile.plugins
+      args:
+        PLUGIN_NAME: ratelimit-ml-grpc
+    environment:
+      PLUGIN_GRPC_ADDRESS: "0.0.0.0:50004"
+      ML_MODEL_PATH: "/var/lib/plugins/ml/models"
+      REDIS_URL: "redis://redis:6379"
+    volumes:
+      - ml-models:/var/lib/plugins/ml/models
+    networks:
+      - hockeypuck-net
+    healthcheck:
+      test: ["CMD", "grpc_health_probe", "-addr=localhost:50004"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+
+  plugin-threat-intel:
+    build:
+      context: .
+      dockerfile: Dockerfile.plugins
+      args:
+        PLUGIN_NAME: ratelimit-threat-grpc
+    environment:
+      PLUGIN_GRPC_ADDRESS: "0.0.0.0:50005"
+      THREAT_FEED_CACHE: "/var/lib/plugins/threat/cache"
+    volumes:
+      - threat-data:/var/lib/plugins/threat
+    networks:
+      - hockeypuck-net
+    healthcheck:
+      test: ["CMD", "grpc_health_probe", "-addr=localhost:50005"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+
+  plugin-tarpit:
+    build:
+      context: .
+      dockerfile: Dockerfile.plugins
+      args:
+        PLUGIN_NAME: ratelimit-tarpit-grpc
+    environment:
+      PLUGIN_GRPC_ADDRESS: "0.0.0.0:50006"
+      TARPIT_DATA_PATH: "/var/lib/plugins/tarpit"
+    volumes:
+      - tarpit-data:/var/lib/plugins/tarpit
+    networks:
+      - hockeypuck-net
+    healthcheck:
+      test: ["CMD", "grpc_health_probe", "-addr=localhost:50006"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+
+  plugin-zerotrust:
+    build:
+      context: .
+      dockerfile: Dockerfile.plugins
+      args:
+        PLUGIN_NAME: zerotrust-grpc
+    environment:
+      PLUGIN_GRPC_ADDRESS: "0.0.0.0:50007"
+      ZT_SESSION_STORE: "/var/lib/plugins/zerotrust/sessions"
+      ZT_AUDIT_LOG: "/var/lib/plugins/zerotrust/audit"
+    volumes:
+      - zerotrust-data:/var/lib/plugins/zerotrust
+    networks:
+      - hockeypuck-net
+    healthcheck:
+      test: ["CMD", "grpc_health_probe", "-addr=localhost:50007"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+
+  # Hockeypuck with gRPC plugin integration
+  hockeypuck:
+    build:
+      context: .
+      dockerfile: Dockerfile.hockeypuck-grpc
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      plugin-antiabuse:
+        condition: service_healthy
+      plugin-mlabuse:
+        condition: service_healthy
+      plugin-geo:
+        condition: service_healthy
+      plugin-ml-ratelimit:
+        condition: service_healthy
+      plugin-threat-intel:
+        condition: service_healthy
+      plugin-tarpit:
+        condition: service_healthy
+      plugin-zerotrust:
+        condition: service_healthy
+    environment:
+      HOCKEYPUCK_LOGLEVEL: debug
+      HOCKEYPUCK_DATADIR: /var/lib/hockeypuck
+      HOCKEYPUCK_CONFIG: /etc/hockeypuck/hockeypuck-grpc.conf
+      # Plugin gRPC endpoints
+      PLUGIN_ANTIABUSE_ADDR: "plugin-antiabuse:50001"
+      PLUGIN_MLABUSE_ADDR: "plugin-mlabuse:50002"
+      PLUGIN_GEO_ADDR: "plugin-geo:50003"
+      PLUGIN_ML_RATELIMIT_ADDR: "plugin-ml-ratelimit:50004"
+      PLUGIN_THREAT_INTEL_ADDR: "plugin-threat-intel:50005"
+      PLUGIN_TARPIT_ADDR: "plugin-tarpit:50006"
+      PLUGIN_ZEROTRUST_ADDR: "plugin-zerotrust:50007"
+    volumes:
+      - ./config/hockeypuck-grpc.conf:/etc/hockeypuck/hockeypuck-grpc.conf:ro
+      - hockeypuck-data:/var/lib/hockeypuck
+    ports:
+      - "21371:11371"  # HKP port
+      - "21370:11370"  # Recon port (if enabled)
+      - "21372:8080"   # Plugin management API
+    networks:
+      - hockeypuck-net
+    restart: unless-stopped
+
+  # Plugin discovery and management service
+  plugin-manager:
+    build:
+      context: .
+      dockerfile: Dockerfile.plugin-manager
+    environment:
+      PLUGIN_DISCOVERY_PATH: "/var/lib/plugins"
+      MANAGEMENT_API_PORT: "8080"
+    volumes:
+      - plugin-config:/etc/plugins
+    ports:
+      - "21373:8080"   # Plugin management API
+    networks:
+      - hockeypuck-net
+    restart: unless-stopped
+
+  # Development/testing container with tools
+  dev-tools:
+    image: golang:1.24-bookworm
+    depends_on:
+      - hockeypuck
+    volumes:
+      - .:/workspace
+      - hockeypuck-data:/var/lib/hockeypuck:ro
+    working_dir: /workspace
+    command: sleep infinity
+    networks:
+      - hockeypuck-net
+    profiles:
+      - dev
+
+  # Prometheus for metrics (including plugin metrics)
+  prometheus:
+    image: prom/prometheus:latest
+    volumes:
+      - ./config/prometheus-grpc.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    ports:
+      - "9090:9090"
+    networks:
+      - hockeypuck-net
+    profiles:
+      - monitoring
+
+  # Grafana for visualization
+  grafana:
+    image: grafana/grafana:latest
+    depends_on:
+      - prometheus
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./config/grafana:/etc/grafana/provisioning:ro
+    ports:
+      - "3000:3000"
+    networks:
+      - hockeypuck-net
+    profiles:
+      - monitoring
+
+volumes:
+  postgres-data:
+  redis-data:
+  hockeypuck-data:
+  plugin-config:
+  ml-models:
+  geoip-data:
+  threat-data:
+  tarpit-data:
+  zerotrust-data:
+  prometheus-data:
+  grafana-data:
+
+networks:
+  hockeypuck-net:
+    driver: bridge

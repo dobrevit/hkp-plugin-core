@@ -1,0 +1,120 @@
+version: '3.8'
+
+services:
+  # PostgreSQL database for Hockeypuck
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: hockeypuck
+      POSTGRES_USER: hockeypuck
+      POSTGRES_PASSWORD: hockeypuck
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U hockeypuck"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - hockeypuck-net
+
+  # Redis for plugin rate limiting and caching
+  redis:
+    image: redis:7-alpine
+    command: redis-server --appendonly yes
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - hockeypuck-net
+
+  # Hockeypuck with integrated plugins
+  hockeypuck:
+    build:
+      context: .
+      dockerfile: Dockerfile.hockeypuck-integration
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      # Override configuration via environment if needed
+      HOCKEYPUCK_LOGLEVEL: debug
+      HOCKEYPUCK_DATADIR: /var/lib/hockeypuck
+      # Plugin-specific environment variables
+      REDIS_URL: redis://redis:6379
+      GEOIP_DB_PATH: /var/lib/hockeypuck/GeoLite2-City.mmdb
+    volumes:
+      # Mount configuration if you want to override the default
+      - ./config/hockeypuck.conf:/etc/hockeypuck/hockeypuck.conf:ro
+      # Persist Hockeypuck data
+      - hockeypuck-data:/var/lib/hockeypuck
+      # Mount GeoIP database if available
+      - ./GeoLite2-City.mmdb:/var/lib/hockeypuck/GeoLite2-City.mmdb:ro
+    ports:
+      - "21371:11371"  # HKP port
+      - "21370:11370"  # Recon port (if enabled)
+    networks:
+      - hockeypuck-net
+    restart: unless-stopped
+
+  # Optional: Development/testing container with tools
+  dev-tools:
+    image: golang:1.24-bookworm
+    depends_on:
+      - hockeypuck
+    volumes:
+      - .:/workspace
+      - hockeypuck-data:/var/lib/hockeypuck:ro
+    working_dir: /workspace
+    command: sleep infinity
+    networks:
+      - hockeypuck-net
+    profiles:
+      - dev
+
+  # Optional: Prometheus for metrics
+  prometheus:
+    image: prom/prometheus:latest
+    volumes:
+      - ./config/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    ports:
+      - "9090:9090"
+    networks:
+      - hockeypuck-net
+    profiles:
+      - monitoring
+
+  # Optional: Grafana for visualization
+  grafana:
+    image: grafana/grafana:latest
+    depends_on:
+      - prometheus
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - grafana-data:/var/lib/grafana
+    ports:
+      - "3000:3000"
+    networks:
+      - hockeypuck-net
+    profiles:
+      - monitoring
+
+volumes:
+  postgres-data:
+  redis-data:
+  hockeypuck-data:
+  prometheus-data:
+  grafana-data:
+
+networks:
+  hockeypuck-net:
+    driver: bridge

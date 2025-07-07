@@ -1,0 +1,11 @@
+# Health Monitoring Demo Configuration
+
+[server]
+bind = ":8080"
+
+[logging]
+level = "info"
+
+[plugins]
+enabled = true
+directory = "../interpose/plugins"

@@ -1,0 +1,25 @@
+[plugin]
+name = "ml-abuse-detector"
+version = "1.0.0"
+description = "Machine Learning-based abuse detection with LLM detection capabilities"
+executable = "mlabuse-grpc"
+protocol_version = "1.0"
+
+[plugin.capabilities]
+http_middleware = true
+threat_detection = true
+rate_limiting = true
+key_analysis = true
+
+[plugin.dependencies]
+
+[plugin.config]
+enabled = true
+anomaly_threshold = 0.85
+behavior_window_size = 100
+update_interval = "5m"
+llm_detection = true
+synthetic_threshold = 0.75
+max_memory_mb = 256
+enable_realtime_update = true
+model_path = "/var/lib/hockeypuck/plugins/ml/models/"

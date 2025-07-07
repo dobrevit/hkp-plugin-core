@@ -4,16 +4,17 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Architecture
 
-This is the HKP Plugin System - a comprehensive, modular security and operational framework for Hockeypuck OpenPGP key servers. The system implements a sophisticated plugin architecture with Hockeypuck-compatible interfaces, event-driven communication, hot-reload capabilities, and advanced security features.
+This is the HKP Plugin System - a comprehensive, modular security and operational framework for Hockeypuck OpenPGP key servers. The system implements a gRPC-based plugin architecture with clear licensing boundaries, allowing plugins to be developed under any license while Hockeypuck remains AGPL.
 
 ### Core Components
 
-- **Plugin Framework**: Uses Go's plugin architecture (`.so` files) for hot-pluggable modules
-- **Event System**: Hybrid system bridging Hockeypuck's KeyChange notifications with flexible plugin events
-- **Middleware Chain**: HTTP middleware integration compatible with `github.com/carbocation/interpose`
-- **Storage Interface**: Compatible with Hockeypuck's storage patterns without copying AGPL code
-- **Configuration**: Matches Hockeypuck's TOML structure and template system
-- **Resource Management**: Proper lifecycle management using `gopkg.in/tomb.v2`
+- **Plugin Framework**: Process-based architecture using gRPC for inter-process communication (similar to Terraform providers)
+- **gRPC Protocol**: Well-defined protobuf-based API ensuring clean separation between AGPL Hockeypuck and plugins
+- **Process Management**: Plugin lifecycle management (discovery, launch, monitoring, restart)
+- **Event System**: Event-driven communication via gRPC streams
+- **Storage Interface**: Plugin access to storage through gRPC API without direct AGPL code dependency
+- **Configuration**: TOML-based configuration for both Hockeypuck and plugins
+- **Version Negotiation**: Protocol versioning for backward compatibility
 
 ### Plugin Categories
 
@@ -23,15 +24,15 @@ This is the HKP Plugin System - a comprehensive, modular security and operationa
 
 ### Key Architecture Files
 
-- `main.go`: Example server implementation with plugin integration
-- `pkg/plugin/`: Core plugin interfaces and management (Hockeypuck-compatible)
-- `pkg/hkpstorage/`: Hockeypuck-compatible storage interfaces
-- `pkg/events/`: Event system bridging Hockeypuck and plugin patterns
-- `pkg/config/`: Hockeypuck-compatible configuration structures
-- `pkg/middleware/`: Interpose-compatible middleware chain management
-- `pkg/ratelimit/`: Rate limiting backend implementations
-- `src/plugins/`: Individual plugin implementations
-- `cmd/interpose/`: Main application entry point
+- `proto/`: gRPC protocol definitions (protobuf files)
+- `pkg/plugin/`: Core plugin interfaces and process management
+- `pkg/grpc/client/`: gRPC client implementation for Hockeypuck
+- `pkg/grpc/server/`: gRPC server framework for plugins
+- `pkg/discovery/`: Plugin discovery and registration
+- `pkg/lifecycle/`: Plugin process lifecycle management
+- `pkg/config/`: Configuration structures for plugins
+- `src/plugins/`: Individual plugin implementations (standalone binaries)
+- `cmd/plugin-host/`: Plugin host process that manages plugin lifecycle
 
 ## Development Commands
 
@@ -90,22 +91,68 @@ make run
 
 ## Plugin Development
 
-### Plugin Interface
-All plugins must implement the `plugin.Plugin` interface (Hockeypuck-compatible):
-- `Initialize(ctx, host, config) error`
-- `Name() string`
-- `Version() string`
-- `Description() string`
-- `Dependencies() []PluginDependency`
-- `Shutdown(ctx) error`
+### gRPC-Based Plugin Architecture
 
-### Plugin Host Interface (Hockeypuck-compatible)
-- `Storage() hkpstorage.Storage` - Access Hockeypuck storage
-- `Config() *config.Settings` - Access Hockeypuck-style configuration
-- `Logger() *logrus.Logger` - Use logrus (same as Hockeypuck)
-- `PublishEvent(events.PluginEvent) error` - Generic event publishing
-- `SubscribeKeyChanges(func(KeyChange) error) error` - Hockeypuck-style notifications
-- `PublishThreatDetected(events.ThreatInfo) error` - Security event convenience method
+Plugins are standalone executables that communicate with Hockeypuck via gRPC:
+
+1. **Plugin Binary**: Standalone executable (any language supporting gRPC)
+2. **gRPC Server**: Plugin implements gRPC server based on protobuf definitions
+3. **Protocol Buffer**: Defines the contract between Hockeypuck and plugins
+4. **Process Isolation**: Plugins run in separate processes with clear boundaries
+
+### Plugin gRPC Service Interface
+```protobuf
+service HKPPlugin {
+  // Lifecycle methods
+  rpc Initialize(InitRequest) returns (InitResponse);
+  rpc Shutdown(ShutdownRequest) returns (ShutdownResponse);
+  
+  // Plugin information
+  rpc GetInfo(Empty) returns (PluginInfo);
+  
+  // Event handling
+  rpc HandleKeyChange(KeyChangeEvent) returns (HandleResponse);
+  rpc SubscribeEvents(EventSubscription) returns (stream Event);
+  
+  // Storage access (proxied through gRPC)
+  rpc QueryKeys(QueryRequest) returns (QueryResponse);
+  
+  // Health monitoring
+  rpc HealthCheck(Empty) returns (HealthStatus);
+}
+```
+
+### Licensing Boundaries
+
+**IMPORTANT**: The gRPC architecture creates a clear licensing boundary:
+- **Hockeypuck (AGPL)**: Remains under AGPL license
+- **gRPC Protocol**: Interface definitions are separate from implementation
+- **Plugins (Any License)**: Can be licensed under any terms (MIT, Apache, proprietary, etc.)
+- **Communication**: Via well-defined RPC protocol, not direct linking
+
+This separation allows commercial plugins while respecting Hockeypuck's AGPL license.
+
+### Architectural Shift from Go Plugins to gRPC
+
+**Why the Change**: 
+- Go's native plugin system (`.so` files) requires exact binary compatibility
+- All dependencies must match exactly between host and plugins
+- Plugins inherit the host's license (AGPL contamination)
+
+**Benefits of gRPC Architecture**:
+- **License Freedom**: Plugins can use any license
+- **Language Agnostic**: Plugins can be written in any language with gRPC support
+- **Version Independence**: No binary compatibility issues
+- **Better Isolation**: Process-level isolation improves stability
+- **Remote Plugins**: Possibility to run plugins on different machines
+
+### Migration Strategy
+
+1. **Phase 1**: Define gRPC protocol in protobuf
+2. **Phase 2**: Implement plugin host with process management
+3. **Phase 3**: Create gRPC server framework for Go plugins
+4. **Phase 4**: Convert existing plugins to gRPC architecture
+5. **Phase 5**: Deprecate Go plugin (`.so`) support
 
 ### Plugin Loading Order
 Critical: Plugins must be loaded in dependency order:
@@ -130,7 +177,44 @@ host.PublishEvent(plugin.PluginEvent{
 })
 ```
 
-### Plugin Lifecycle Management 🔥
+### Plugin Health Monitoring & Restart Logic 🔥
+
+The `/pkg/health/` package provides comprehensive health monitoring and automatic restart capabilities:
+
+**Key Features:**
+- **Automatic Health Checks**: Continuous monitoring with configurable intervals (default: 30s)
+- **Failure Detection**: Configurable failure thresholds and state tracking
+- **Smart Restart Logic**: Exponential backoff with maximum restart limits
+- **HTTP Health Endpoints**: REST API for health status and management
+- **Kubernetes Integration**: Liveness and readiness probe support
+- **Real-time Monitoring**: Detailed health metrics and status tracking
+
+**HTTP Health Endpoints:**
+- `GET /health` - Overall system health with plugin summary
+- `GET /health/liveness` - Kubernetes liveness probe endpoint
+- `GET /health/readiness` - Kubernetes readiness probe endpoint
+- `GET /health/{plugin}` - Specific plugin health details
+- `POST /health/{plugin}/restart` - Manual plugin restart trigger
+
+**Health States:** Unknown → Healthy → Unhealthy → Restarting → Failed
+**Restart Logic:** Automatic restart with exponential backoff (5s → 10s → 20s → ... → 5m max)
+**Integration:** Seamlessly integrated with HockeypuckPluginHost
+
+**Usage Example:**
+```go
+// Health monitoring is automatically included in SimplePluginAdapter
+pluginAdapter := client.NewSimplePluginAdapter("/etc/hockeypuck/plugins", logger)
+pluginAdapter.Start(ctx) // Starts health monitoring automatically
+
+// Add health endpoints to HTTP server
+mux.HandleFunc("/health", pluginAdapter.HandleManagement)
+mux.HandleFunc("/plugins/", pluginAdapter.HandleManagement)
+```
+
+**Demo Application:** `cmd/health-monitoring/` provides a complete interactive demo
+showing health monitoring, failure simulation, and automatic recovery!
+
+### Plugin Lifecycle Management
 
 The `/pkg/management/` package provides production-ready plugin lifecycle management:
 

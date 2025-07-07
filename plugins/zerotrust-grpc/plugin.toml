@@ -1,0 +1,62 @@
+[plugin]
+name = "zero-trust-security"
+version = "1.0.0"
+description = "Zero-Trust Network Access with continuous authentication and micro-segmentation"
+executable = "zerotrust-grpc"
+capabilities = ["authentication", "zero_trust", "micro_segmentation", "risk_assessment"]
+priority = 40
+
+[config]
+enabled = true
+policy_mode = "enforce"
+require_authentication = true
+session_timeout = "30m"
+reevaluation_interval = "5m"
+max_risk_score = 0.7
+device_fingerprinting_level = "standard"
+audit_level = "detailed"
+audit_log_path = "./logs"
+public_paths = ["/pks/lookup", "/pks/stats", "/health", "/metrics"]
+
+[config.risk_assessment]
+enabled = true
+location_risk_weight = 0.3
+behavior_risk_weight = 0.4
+device_risk_weight = 0.2
+time_risk_weight = 0.1
+velocity_threshold = 1000.0
+anomaly_threshold = 0.8
+
+[config.network_segmentation]
+enabled = true
+default_segment = "public"
+
+[config.network_segmentation.segment_policies.public]
+name = "Public Access"
+allowed_services = ["hkp", "health"]
+allowed_methods = ["GET"]
+allowed_paths = ["/pks/lookup", "/health"]
+risk_threshold = 0.3
+
+[config.network_segmentation.segment_policies.authenticated]
+name = "Authenticated Access"
+allowed_services = ["hkp", "admin"]
+allowed_methods = ["GET", "POST"]
+allowed_paths = ["/pks/add", "/pks/lookup"]
+risk_threshold = 0.6
+
+[config.adaptive_policies]
+enabled = true
+policy_update_interval = "30m"
+learning_period = "7d"
+auto_adjust_thresholds = true
+
+[health]
+check_interval = "30s"
+timeout = "10s"
+restart_threshold = 3
+
+[grpc]
+address = "localhost:50006"
+max_connections = 100
+timeout = "30s"

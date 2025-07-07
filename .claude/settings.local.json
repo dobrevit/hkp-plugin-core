@@ -3,7 +3,9 @@
     "allow": [
       "Bash(grep:*)",
       "Bash(curl:*)",
-      "WebFetch(domain:github.com)"
+      "WebFetch(domain:github.com)",
+      "Bash(mkdir:*)",
+      "Bash(go mod:*)"
     ],
     "deny": []
   }

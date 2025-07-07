@@ -1,0 +1,21 @@
+[plugin]
+name = "{{.PluginName}}"
+version = "{{.PluginVersion}}"
+description = "{{.Description}}"
+executable = "{{.ExecutableName}}"
+capabilities = [{{range .Capabilities}}"{{.}}", {{end}}]
+priority = {{.Priority}}
+
+[config]
+enabled = true
+# Add your configuration options here
+
+[health]
+check_interval = "30s"
+timeout = "10s"
+restart_threshold = 3
+
+[grpc]
+address = "localhost:{{.DefaultPort}}"
+max_connections = 100
+timeout = "30s"

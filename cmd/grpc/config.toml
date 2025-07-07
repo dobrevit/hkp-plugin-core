@@ -1,0 +1,14 @@
+# gRPC Plugin Server Configuration
+
+[server]
+bind = ":11371"
+datadir = "/var/lib/hockeypuck"
+
+[logging]
+level = "info"
+
+[plugins]
+enabled = true
+directories = ["./plugins", "/etc/hockeypuck/plugins"]
+start_timeout = "30s"
+health_interval = "10s"

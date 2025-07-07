@@ -1,0 +1,12 @@
+# Hockeypuck Integration Configuration with gRPC Plugins
+
+[server]
+bind = ":11371"
+datadir = "/var/lib/hockeypuck"
+
+[logging]
+level = "info"
+
+[plugins]
+enabled = true
+directory = "./plugins"

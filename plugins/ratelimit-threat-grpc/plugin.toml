@@ -1,0 +1,43 @@
+[plugin]
+name = "threat-intelligence"
+version = "1.0.0"
+description = "Threat intelligence integration for enhanced rate limiting"
+executable = "ratelimit-threat-grpc"
+capabilities = ["rate_limiting", "threat_intelligence", "ip_reputation", "blocklist"]
+priority = 15
+
+[config]
+enabled = true
+update_interval = "1h"
+cache_size = 100000
+block_duration = "24h"
+reputation_threshold = 0.3
+auto_block = true
+share_threat_data = false
+local_blocklist = ""
+
+[[config.threat_feeds]]
+name = "EmergingThreats"
+url = "https://rules.emergingthreats.net/blockrules/compromised-ips.txt"
+type = "ip"
+format = "txt"
+update_freq = "1h"
+enabled = true
+
+[[config.threat_feeds]]
+name = "MalwareDomains"
+url = "https://mirror1.malwaredomains.com/files/justdomains"
+type = "domain"
+format = "txt"
+update_freq = "6h"
+enabled = false
+
+[health]
+check_interval = "30s"
+timeout = "10s"
+restart_threshold = 3
+
+[grpc]
+address = "localhost:50005"
+max_connections = 100
+timeout = "30s"

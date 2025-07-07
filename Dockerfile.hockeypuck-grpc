@@ -1,0 +1,78 @@
+# Dockerfile for Hockeypuck with gRPC plugin support
+FROM golang:1.24-bookworm AS builder
+
+# Install build dependencies
+RUN apt-get update && apt-get install -y \
+    protobuf-compiler \
+    git \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Go tools
+RUN go install google.golang.org/protobuf/cmd/protoc-gen-go@latest && \
+    go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
+
+WORKDIR /workspace
+
+# Copy plugin system go module files first
+COPY go.mod go.sum ./
+RUN go mod download
+
+# Copy the entire source tree
+COPY . .
+
+# Build Hockeypuck with gRPC plugin integration
+WORKDIR /workspace/src/hockeypuck
+RUN go mod download
+
+# Build the main hockeypuck binary
+RUN cd server/cmd/hockeypuck && \
+    go build -o hockeypuck-grpc . && \
+    ls -la hockeypuck-grpc
+
+# Runtime stage
+FROM debian:bookworm-slim AS runtime
+
+# Install runtime dependencies
+RUN apt-get update && apt-get install -y \
+    ca-certificates \
+    curl \
+    postgresql-client \
+    redis-tools \
+    wget \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create hockeypuck user and directories
+RUN groupadd -r hockeypuck && useradd -r -g hockeypuck hockeypuck
+RUN mkdir -p /var/lib/hockeypuck /etc/hockeypuck /var/log/hockeypuck && \
+    chown -R hockeypuck:hockeypuck /var/lib/hockeypuck /etc/hockeypuck /var/log/hockeypuck
+
+# Copy Hockeypuck binary
+COPY --from=builder /workspace/src/hockeypuck/server/cmd/hockeypuck/hockeypuck-grpc /usr/local/bin/
+
+# Copy configuration template
+COPY --from=builder /workspace/config/hockeypuck-grpc.conf /etc/hockeypuck/hockeypuck-grpc.conf.template
+
+# Set up hockeypuck user
+USER hockeypuck
+
+# Default environment variables
+ENV HOCKEYPUCK_LOGLEVEL=info
+ENV HOCKEYPUCK_DATADIR=/var/lib/hockeypuck
+ENV HOCKEYPUCK_CONFIG=/etc/hockeypuck/hockeypuck-grpc.conf
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
+    CMD curl -f http://localhost:11371/pks/lookup?op=stats || exit 1
+
+# Expose ports
+EXPOSE 11371 11370 8080
+
+# Create startup script
+COPY --from=builder /workspace/scripts/docker-entrypoint.sh /docker-entrypoint.sh
+USER root
+RUN chmod +x /docker-entrypoint.sh
+USER hockeypuck
+
+# Run Hockeypuck
+CMD ["/docker-entrypoint.sh"]

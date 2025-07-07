@@ -1,0 +1,63 @@
+# Dockerfile for plugin discovery and management service
+FROM golang:1.24-bookworm AS builder
+
+# Install build dependencies
+RUN apt-get update && apt-get install -y \
+    protobuf-compiler \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Go tools
+RUN go install google.golang.org/protobuf/cmd/protoc-gen-go@latest && \
+    go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
+
+WORKDIR /workspace
+
+# Copy go module files
+COPY go.mod go.sum ./
+RUN go mod download
+
+# Copy source code
+COPY . .
+
+# Build plugin manager
+RUN cd cmd/health-monitoring && \
+    go build -o plugin-manager . && \
+    ls -la plugin-manager
+
+# Runtime stage
+FROM debian:bookworm-slim AS runtime
+
+# Install runtime dependencies
+RUN apt-get update && apt-get install -y \
+    ca-certificates \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create plugin-manager user and directories
+RUN groupadd -r pluginmgr && useradd -r -g pluginmgr pluginmgr
+RUN mkdir -p /var/lib/plugins /etc/plugins /var/log/plugins && \
+    chown -R pluginmgr:pluginmgr /var/lib/plugins /etc/plugins /var/log/plugins
+
+# Copy plugin manager binary
+COPY --from=builder /workspace/cmd/health-monitoring/plugin-manager /usr/local/bin/
+
+# Copy configuration template
+COPY --from=builder /workspace/cmd/health-monitoring/health-monitoring.toml /etc/plugins/plugin-manager.toml
+
+# Set up plugin-manager user
+USER pluginmgr
+
+# Default environment variables
+ENV PLUGIN_DISCOVERY_PATH=/var/lib/plugins
+ENV MANAGEMENT_API_PORT=8080
+ENV PLUGIN_MANAGER_CONFIG=/etc/plugins/plugin-manager.toml
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD curl -f http://localhost:8080/health || exit 1
+
+# Expose management API port
+EXPOSE 8080
+
+# Run plugin manager
+CMD ["/usr/local/bin/plugin-manager"]

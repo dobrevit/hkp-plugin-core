@@ -76,6 +76,8 @@ clean:
 	@echo "$(YELLOW)→ Cleaning build artifacts...$(NC)"
 	@rm -rf $(OUTPUT_DIR)/*.so
 	@rm -f $(CMD_DIR)/$(BINARY_NAME)
+	@rm -f $(CMD_DIR)/interpose-grpc
+	@rm -rf $(CMD_DIR)/plugins
 	$(GOCLEAN)
 	@echo "$(GREEN)✓ Clean complete!$(NC)"
 
@@ -133,9 +135,54 @@ run: plugins app
 	@echo "$(YELLOW)→ Running $(BINARY_NAME)...$(NC)"
 	@cd $(CMD_DIR) && ./$(BINARY_NAME) -config ./config.toml
 
+# Generate protobuf code
+.PHONY: proto
+proto:
+	@echo "$(YELLOW)→ Generating protobuf code...$(NC)"
+	@if command -v protoc > /dev/null; then \
+		mkdir -p pkg/grpc; \
+		protoc --go_out=pkg/grpc --go_opt=paths=source_relative \
+			--go-grpc_out=pkg/grpc --go-grpc_opt=paths=source_relative \
+			proto/hkp_plugin.proto; \
+		echo "$(GREEN)✓ Protobuf code generated!$(NC)"; \
+	else \
+		echo "$(RED)✗ protoc not installed. Please install protobuf compiler.$(NC)"; \
+		exit 1; \
+	fi
+
 # Development mode - build and run
 .PHONY: dev
 dev: plugins app run
+
+# Build gRPC plugins
+.PHONY: grpc-plugins
+grpc-plugins:
+	@echo "$(YELLOW)→ Building gRPC plugins...$(NC)"
+	@mkdir -p $(CMD_DIR)/plugins/antiabuse
+	@cd plugins/antiabuse-grpc && $(GOBUILD) -o ../../$(CMD_DIR)/plugins/antiabuse/antiabuse-grpc .
+	@cp plugins/antiabuse-grpc/plugin.toml $(CMD_DIR)/plugins/antiabuse/
+	@echo "$(GREEN)✓ gRPC plugins built and deployed!$(NC)"
+
+# Build and run gRPC MVP
+.PHONY: mvp-grpc
+mvp-grpc: proto grpc-plugins
+	@echo "$(YELLOW)→ Building gRPC MVP...$(NC)"
+	@cd $(CMD_DIR) && $(GOBUILD) -o interpose-grpc main_grpc.go
+	@echo "$(GREEN)✓ gRPC MVP built: $(CMD_DIR)/interpose-grpc$(NC)"
+
+# Build Hockeypuck integration example
+.PHONY: hockeypuck-integration
+hockeypuck-integration: proto grpc-plugins
+	@echo "$(YELLOW)→ Building Hockeypuck integration example...$(NC)"
+	@cd $(CMD_DIR) && $(GOBUILD) -o hockeypuck-integration main_hockeypuck_integration.go
+	@echo "$(GREEN)✓ Hockeypuck integration built: $(CMD_DIR)/hockeypuck-integration$(NC)"
+
+# Build health monitoring demo
+.PHONY: health-monitoring
+health-monitoring: proto grpc-plugins
+	@echo "$(YELLOW)→ Building health monitoring demo...$(NC)"
+	@cd cmd/health-monitoring && $(GOBUILD) -o ../../$(CMD_DIR)/health-monitoring .
+	@echo "$(GREEN)✓ Health monitoring demo built: $(CMD_DIR)/health-monitoring$(NC)"
 
 # Help
 .PHONY: help

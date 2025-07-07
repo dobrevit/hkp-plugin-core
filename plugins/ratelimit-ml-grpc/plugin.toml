@@ -1,0 +1,27 @@
+[plugin]
+name = "ml-rate-limiter"
+version = "1.0.0"
+description = "Machine learning-enhanced rate limiting with pattern analysis and anomaly detection"
+executable = "ratelimit-ml-grpc"
+capabilities = ["rate_limiting", "ml_analysis", "traffic_prediction", "anomaly_detection"]
+priority = 25
+
+[config]
+enabled = true
+model_path = "/var/lib/hockeypuck/plugins/ml/models/"
+anomaly_threshold = 0.7
+prediction_window = "5m"
+learning_enabled = true
+coordination_enabled = true
+block_duration = "15m"
+escalation_multiplier = 2.0
+
+[health]
+check_interval = "30s"
+timeout = "10s"
+restart_threshold = 3
+
+[grpc]
+address = "localhost:50003"
+max_connections = 100
+timeout = "30s"

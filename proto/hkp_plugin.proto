@@ -1,0 +1,238 @@
+syntax = "proto3";
+
+package hkpplugin;
+
+option go_package = "github.com/dobrevit/hkp-plugin-core/pkg/grpc/proto;proto";
+
+// Empty message for methods that don't require parameters
+message Empty {}
+
+// Plugin metadata and capabilities
+message PluginInfo {
+  string name = 1;
+  string version = 2;
+  string description = 3;
+  repeated string capabilities = 4;
+  map<string, string> metadata = 5;
+}
+
+// Plugin initialization
+message InitRequest {
+  string config_json = 1;  // JSON-encoded configuration
+  string hockeypuck_version = 2;
+  string protocol_version = 3;
+  map<string, string> environment = 4;
+}
+
+message InitResponse {
+  bool success = 1;
+  string error = 2;
+  PluginInfo info = 3;
+}
+
+// Plugin shutdown
+message ShutdownRequest {
+  int32 timeout_seconds = 1;
+  string reason = 2;
+}
+
+message ShutdownResponse {
+  bool success = 1;
+  string error = 2;
+}
+
+// HTTP request handling
+message HTTPRequest {
+  string id = 1;
+  string method = 2;
+  string path = 3;
+  map<string, string> headers = 4;
+  bytes body = 5;
+  string remote_addr = 6;
+  map<string, string> query_params = 7;
+}
+
+message HTTPResponse {
+  int32 status_code = 1;
+  map<string, string> headers = 2;
+  bytes body = 3;
+  bool continue_chain = 4;  // Whether to continue middleware chain
+}
+
+// Key change events (Hockeypuck compatibility)
+message KeyChangeEvent {
+  string id = 1;
+  enum ChangeType {
+    UNKNOWN = 0;
+    CREATE = 1;
+    UPDATE = 2;
+    DELETE = 3;
+  }
+  ChangeType change_type = 2;
+  string fingerprint = 3;
+  bytes key_data = 4;  // OpenPGP key data
+  int64 timestamp = 5;
+}
+
+// Event subscription
+message EventFilter {
+  repeated string event_types = 1;
+  map<string, string> metadata_filters = 2;
+}
+
+message Event {
+  string id = 1;
+  string type = 2;
+  bytes data = 3;  // JSON-encoded event data
+  int64 timestamp = 4;
+  string source = 5;
+  map<string, string> metadata = 6;
+}
+
+// Storage queries (proxy through gRPC)
+message StorageQuery {
+  enum QueryType {
+    LOOKUP = 0;
+    SEARCH = 1;
+    FETCH = 2;
+  }
+  QueryType type = 1;
+  string query = 2;
+  map<string, string> options = 3;
+  int32 limit = 4;
+  int32 offset = 5;
+}
+
+message StorageResponse {
+  bool success = 1;
+  string error = 2;
+  repeated KeyInfo keys = 3;
+  int32 total_count = 4;
+}
+
+message KeyInfo {
+  string fingerprint = 1;
+  string key_id = 2;
+  repeated string user_ids = 3;
+  int64 creation_time = 4;
+  int64 expiration_time = 5;
+  bool revoked = 6;
+  bytes key_data = 7;
+}
+
+// Health checks
+message HealthStatus {
+  enum Status {
+    UNKNOWN = 0;
+    HEALTHY = 1;
+    DEGRADED = 2;
+    UNHEALTHY = 3;
+  }
+  Status status = 1;
+  string message = 2;
+  map<string, string> details = 3;
+  int64 timestamp = 4;
+}
+
+// Rate limiting
+message RateLimitCheck {
+  string identifier = 1;  // IP, key ID, etc.
+  string action = 2;      // "lookup", "submit", etc.
+  map<string, string> metadata = 3;
+}
+
+message RateLimitResponse {
+  bool allowed = 1;
+  string reason = 2;
+  int32 retry_after_seconds = 3;
+  map<string, string> headers = 4;  // Headers to add to HTTP response
+}
+
+// Threat detection
+message ThreatInfo {
+  string id = 1;
+  enum ThreatLevel {
+    UNKNOWN = 0;
+    LOW = 1;
+    MEDIUM = 2;
+    HIGH = 3;
+    CRITICAL = 4;
+  }
+  ThreatLevel level = 2;
+  string type = 3;
+  string description = 4;
+  string source = 5;
+  map<string, string> indicators = 6;
+  int64 timestamp = 7;
+}
+
+// Plugin capabilities
+message Capability {
+  string name = 1;
+  string version = 2;
+  map<string, string> options = 3;
+}
+
+// The main plugin service
+service HKPPlugin {
+  // Lifecycle management
+  rpc Initialize(InitRequest) returns (InitResponse);
+  rpc Shutdown(ShutdownRequest) returns (ShutdownResponse);
+  
+  // Plugin information
+  rpc GetInfo(Empty) returns (PluginInfo);
+  
+  // HTTP middleware
+  rpc HandleHTTPRequest(HTTPRequest) returns (HTTPResponse);
+  
+  // Event handling
+  rpc HandleKeyChange(KeyChangeEvent) returns (Event);
+  rpc SubscribeEvents(EventFilter) returns (stream Event);
+  rpc PublishEvent(Event) returns (Empty);
+  
+  // Storage access (proxied)
+  rpc QueryStorage(StorageQuery) returns (StorageResponse);
+  
+  // Health monitoring
+  rpc HealthCheck(Empty) returns (HealthStatus);
+  
+  // Rate limiting
+  rpc CheckRateLimit(RateLimitCheck) returns (RateLimitResponse);
+  
+  // Threat detection
+  rpc ReportThreat(ThreatInfo) returns (Empty);
+}
+
+// Optional: Bidirectional communication service for plugins
+service PluginHost {
+  // Plugins can query host for information
+  rpc GetHostInfo(Empty) returns (HostInfo);
+  
+  // Plugins can request storage operations
+  rpc RequestStorage(StorageQuery) returns (StorageResponse);
+  
+  // Plugins can publish events to other plugins
+  rpc PublishEvent(Event) returns (Empty);
+  
+  // Plugins can query other plugins
+  rpc QueryPlugin(PluginQuery) returns (PluginResponse);
+}
+
+message HostInfo {
+  string version = 1;
+  string protocol_version = 2;
+  repeated PluginInfo loaded_plugins = 3;
+  map<string, string> configuration = 4;
+}
+
+message PluginQuery {
+  string target_plugin = 1;
+  string method = 2;
+  bytes data = 3;  // JSON-encoded query data
+}
+
+message PluginResponse {
+  bool success = 1;
+  string error = 2;
+  bytes data = 3;  // JSON-encoded response data
+}

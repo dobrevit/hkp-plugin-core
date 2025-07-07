@@ -1,0 +1,112 @@
+# Multi-stage Dockerfile for building Hockeypuck with integrated plugins
+# This ensures both are built with the same Go version and dependencies
+
+# Stage 1: Build base with common dependencies
+FROM golang:1.24-bookworm AS base
+WORKDIR /build
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    git \
+    libpq-dev \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+# Stage 2: Build plugins
+FROM base AS plugin-builder
+WORKDIR /plugin-build
+
+# Copy plugin system files
+COPY go.mod go.sum ./
+COPY pkg/ ./pkg/
+COPY src/plugins/ ./src/plugins/
+COPY cmd/ ./cmd/
+COPY Makefile ./
+
+# Download dependencies and build plugins
+RUN go mod download
+RUN go mod vendor
+RUN make clean && make plugins
+
+# Stage 3: Build Hockeypuck
+FROM base AS hockeypuck-builder
+WORKDIR /hockeypuck-build
+
+# Copy Hockeypuck source
+COPY src/hockeypuck/ ./
+
+# Build Hockeypuck
+RUN cd /hockeypuck-build && \
+    go mod download && \
+    go mod vendor && \
+    go build -o /hockeypuck-build/hockeypuck ./server/cmd/hockeypuck
+
+# Stage 4: Final runtime image
+FROM debian:bookworm-slim
+LABEL maintainer="HKP Plugin System"
+LABEL description="Hockeypuck with integrated plugin system"
+
+# Install runtime dependencies
+RUN apt-get update && apt-get install -y \
+    ca-certificates \
+    libpq-dev \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create hockeypuck user
+RUN useradd -r -s /bin/false hockeypuck
+
+# Create necessary directories
+RUN mkdir -p /etc/hockeypuck \
+    /var/lib/hockeypuck \
+    /var/lib/hockeypuck/plugins \
+    /var/log/hockeypuck \
+    && chown -R hockeypuck:hockeypuck /var/lib/hockeypuck /var/log/hockeypuck
+
+# Copy Hockeypuck binary from builder
+COPY --from=hockeypuck-builder /hockeypuck-build/hockeypuck /usr/local/bin/hockeypuck
+
+# Copy plugins from builder
+COPY --from=plugin-builder /plugin-build/cmd/interpose/plugins/*.so /var/lib/hockeypuck/plugins/
+
+# Copy example configuration
+COPY --from=hockeypuck-builder /hockeypuck-build/server/cmd/hockeypuck/sample-*.conf /etc/hockeypuck/
+
+# Create a default configuration that integrates plugins
+RUN echo '[hockeypuck]' > /etc/hockeypuck/hockeypuck.conf && \
+    echo 'loglevel = "info"' >> /etc/hockeypuck/hockeypuck.conf && \
+    echo 'logfile = "/var/log/hockeypuck/hockeypuck.log"' >> /etc/hockeypuck/hockeypuck.conf && \
+    echo 'datadir = "/var/lib/hockeypuck"' >> /etc/hockeypuck/hockeypuck.conf && \
+    echo 'hostname = "localhost"' >> /etc/hockeypuck/hockeypuck.conf && \
+    echo 'software = "Hockeypuck"' >> /etc/hockeypuck/hockeypuck.conf && \
+    echo 'version = "2.2.0"' >> /etc/hockeypuck/hockeypuck.conf && \
+    echo '' >> /etc/hockeypuck/hockeypuck.conf && \
+    echo '[hockeypuck.hkp]' >> /etc/hockeypuck/hockeypuck.conf && \
+    echo 'bind = ":11371"' >> /etc/hockeypuck/hockeypuck.conf && \
+    echo '' >> /etc/hockeypuck/hockeypuck.conf && \
+    echo '[hockeypuck.openpgp.db]' >> /etc/hockeypuck/hockeypuck.conf && \
+    echo 'driver = "postgres-jsonb"' >> /etc/hockeypuck/hockeypuck.conf && \
+    echo 'dsn = "database=hockeypuck host=db user=hockeypuck password=hockeypuck sslmode=disable"' >> /etc/hockeypuck/hockeypuck.conf && \
+    echo '' >> /etc/hockeypuck/hockeypuck.conf && \
+    echo '# Plugin configuration' >> /etc/hockeypuck/hockeypuck.conf && \
+    echo '[hockeypuck.plugins]' >> /etc/hockeypuck/hockeypuck.conf && \
+    echo 'enabled = true' >> /etc/hockeypuck/hockeypuck.conf && \
+    echo 'directory = "/var/lib/hockeypuck/plugins"' >> /etc/hockeypuck/hockeypuck.conf
+
+# Set permissions
+RUN chown hockeypuck:hockeypuck /etc/hockeypuck/hockeypuck.conf
+
+# Expose HKP port
+EXPOSE 11371
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+  CMD curl -f http://localhost:11371/pks/lookup?op=stats || exit 1
+
+# Switch to hockeypuck user
+USER hockeypuck
+
+# Set working directory
+WORKDIR /var/lib/hockeypuck
+
+# Default command
+CMD ["hockeypuck", "-config", "/etc/hockeypuck/hockeypuck.conf"]

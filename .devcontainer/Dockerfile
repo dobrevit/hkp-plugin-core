@@ -11,6 +11,7 @@ RUN apt update && export DEBIAN_FRONTEND=noninteractive \
     libpq-dev \
     postgresql-15 \
     postgresql-client-15 \
+    protobuf-compiler \
     redis-tools \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 

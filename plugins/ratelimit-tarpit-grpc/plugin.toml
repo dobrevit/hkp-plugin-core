@@ -1,0 +1,37 @@
+[plugin]
+name = "tarpit-defender"
+version = "1.0.0"
+description = "Defensive connection management with tarpit and honeypot functionality"
+executable = "ratelimit-tarpit-grpc"
+capabilities = ["rate_limiting", "tarpit", "honeypot", "intelligence_gathering"]
+priority = 50
+
+[config]
+enabled = true
+tarpit_mode = "slow"
+delay_min = "100ms"
+delay_max = "10s"
+response_chunk_size = 64
+connection_timeout = "5m"
+max_concurrent_tarpits = 1000
+honeypot_enabled = true
+honeypot_paths = ["/admin", "/wp-admin", "/.git", "/.env", "/phpmyadmin"]
+intelligence_mode = true
+auto_tarpit_threshold = 0.8
+
+[config.resource_exhaustion]
+enabled = true
+cpu_intensive = false
+memory_intensive = false
+bandwidth_mode = "slow"
+fake_data_size = 1024
+
+[health]
+check_interval = "30s"
+timeout = "10s"
+restart_threshold = 3
+
+[grpc]
+address = "localhost:50004"
+max_connections = 100
+timeout = "30s"

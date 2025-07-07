@@ -1,0 +1,32 @@
+# Use the same base image as Hockeypuck for compatibility
+ARG VARIANT=1.24-bookworm
+FROM golang:${VARIANT}
+
+# Install development tools similar to the devcontainer
+RUN apt-get update && export DEBIAN_FRONTEND=noninteractive \
+    && apt-get -y install --no-install-recommends \
+    sudo \
+    git \
+    libpq-dev \
+    postgresql-client \
+    redis-tools \
+    ca-certificates \
+    curl \
+    gnupg \
+    lsb-release \
+    && apt-get clean && rm -rf /var/lib/apt/lists/*
+
+# Create vscode user for compatibility with devcontainer
+RUN groupadd --gid 1000 vscode \
+    && useradd --uid 1000 --gid 1000 -m vscode \
+    && echo vscode ALL=\(root\) NOPASSWD:ALL > /etc/sudoers.d/vscode \
+    && chmod 0440 /etc/sudoers.d/vscode
+
+# Set up Go environment
+ENV GOPATH=/go
+ENV PATH=$GOPATH/bin:/usr/local/go/bin:$PATH
+
+# Switch to vscode user
+USER vscode
+
+WORKDIR /workspace

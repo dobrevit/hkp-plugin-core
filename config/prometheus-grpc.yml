@@ -1,0 +1,77 @@
+# Prometheus configuration for gRPC plugin architecture
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+rule_files:
+  # - "first_rules.yml"
+  # - "second_rules.yml"
+
+scrape_configs:
+  # Hockeypuck server metrics
+  - job_name: 'hockeypuck'
+    static_configs:
+      - targets: ['hockeypuck:2112']
+    scrape_interval: 15s
+    metrics_path: /metrics
+
+  # Plugin management API
+  - job_name: 'plugin-manager'
+    static_configs:
+      - targets: ['plugin-manager:8080']
+    scrape_interval: 30s
+    metrics_path: /metrics
+
+  # Individual plugin metrics
+  - job_name: 'plugin-antiabuse'
+    static_configs:
+      - targets: ['plugin-antiabuse:50001']
+    scrape_interval: 30s
+    metrics_path: /metrics
+
+  - job_name: 'plugin-mlabuse'
+    static_configs:
+      - targets: ['plugin-mlabuse:50002']
+    scrape_interval: 30s
+    metrics_path: /metrics
+
+  - job_name: 'plugin-geo'
+    static_configs:
+      - targets: ['plugin-geo:50003']
+    scrape_interval: 30s
+    metrics_path: /metrics
+
+  - job_name: 'plugin-ml-ratelimit'
+    static_configs:
+      - targets: ['plugin-ml-ratelimit:50004']
+    scrape_interval: 30s
+    metrics_path: /metrics
+
+  - job_name: 'plugin-threat-intel'
+    static_configs:
+      - targets: ['plugin-threat-intel:50005']
+    scrape_interval: 30s
+    metrics_path: /metrics
+
+  - job_name: 'plugin-tarpit'
+    static_configs:
+      - targets: ['plugin-tarpit:50006']
+    scrape_interval: 30s
+    metrics_path: /metrics
+
+  - job_name: 'plugin-zerotrust'
+    static_configs:
+      - targets: ['plugin-zerotrust:50007']
+    scrape_interval: 30s
+    metrics_path: /metrics
+
+  # Infrastructure metrics
+  - job_name: 'redis'
+    static_configs:
+      - targets: ['redis:6379']
+    scrape_interval: 30s
+
+  - job_name: 'postgres'
+    static_configs:
+      - targets: ['db:5432']
+    scrape_interval: 30s

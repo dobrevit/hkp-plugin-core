@@ -1,0 +1,81 @@
+# Multi-stage Dockerfile for building gRPC plugins
+FROM golang:1.24-bookworm AS builder
+
+# Install build dependencies
+RUN apt-get update && apt-get install -y \
+    protobuf-compiler \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Go tools
+RUN go install google.golang.org/protobuf/cmd/protoc-gen-go@latest && \
+    go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
+
+WORKDIR /workspace
+
+# Copy go module files
+COPY go.mod go.sum ./
+RUN go mod download
+
+# Copy source code
+COPY . .
+
+# Build stage - plugin name passed as build arg
+ARG PLUGIN_NAME
+RUN if [ -z "$PLUGIN_NAME" ]; then echo "PLUGIN_NAME build arg is required" && exit 1; fi
+
+# Build the specific plugin
+RUN cd plugins/${PLUGIN_NAME} && \
+    go build -o ${PLUGIN_NAME} . && \
+    ls -la ${PLUGIN_NAME}
+
+# Runtime stage
+FROM debian:bookworm-slim AS runtime
+
+# Install runtime dependencies
+RUN apt-get update && apt-get install -y \
+    ca-certificates \
+    wget \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install grpc_health_probe for health checks
+RUN wget -qO/bin/grpc_health_probe https://github.com/grpc-ecosystem/grpc-health-probe/releases/download/v0.4.24/grpc_health_probe-linux-amd64 && \
+    chmod +x /bin/grpc_health_probe
+
+# Create plugin user and directories
+RUN groupadd -r plugin && useradd -r -g plugin plugin
+RUN mkdir -p /var/lib/plugins /etc/plugins && \
+    chown -R plugin:plugin /var/lib/plugins /etc/plugins
+
+# Copy plugin binary and manifest
+ARG PLUGIN_NAME
+COPY --from=builder /workspace/plugins/${PLUGIN_NAME}/${PLUGIN_NAME} /usr/local/bin/
+COPY --from=builder /workspace/plugins/${PLUGIN_NAME}/plugin.toml /etc/plugins/
+
+# Create entrypoint script with the plugin name
+RUN echo "#!/bin/sh" > /entrypoint.sh && \
+    echo "exec /usr/local/bin/${PLUGIN_NAME}" >> /entrypoint.sh && \
+    chmod +x /entrypoint.sh
+
+# Create health check script that uses the actual port
+RUN echo '#!/bin/sh' > /health-check.sh && \
+    echo 'PORT=$(echo $PLUGIN_GRPC_ADDRESS | cut -d: -f2)' >> /health-check.sh && \
+    echo 'grpc_health_probe -addr=localhost:$PORT' >> /health-check.sh && \
+    chmod +x /health-check.sh
+
+# Set up plugin user
+USER plugin
+
+# Default environment variables
+ENV PLUGIN_GRPC_ADDRESS=0.0.0.0:50000
+ENV PLUGIN_CONFIG_PATH=/etc/plugins/plugin.toml
+ENV PLUGIN_DATA_PATH=/var/lib/plugins
+
+# Health check using grpc_health_probe with dynamic port
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD ["/health-check.sh"]
+
+# Expose gRPC port (this will be overridden by docker-compose)
+EXPOSE 50000
+
+# Run the plugin
+CMD ["/entrypoint.sh"]

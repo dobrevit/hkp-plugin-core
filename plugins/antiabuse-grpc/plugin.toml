@@ -1,0 +1,53 @@
+# AntiAbuse gRPC Plugin Manifest
+
+[plugin]
+# Required fields
+name = "antiabuse"
+version = "1.0.0"
+executable = "antiabuse-grpc"
+protocol_version = "1.0"
+
+# Optional metadata
+description = "Basic anti-abuse plugin for HKP servers using gRPC"
+author = "HKP Plugin Team"
+license = "MIT"
+
+# Plugin capabilities (what this plugin can do)
+capabilities = [
+    "http_middleware",
+    "rate_limiting",
+    "abuse_detection",
+    "event_handler"
+]
+
+# Dependencies on other plugins (none for this basic plugin)
+dependencies = []
+
+# Plugin-specific configuration
+[plugin.config]
+# Rate limiting settings
+max_requests_per_minute = 60
+max_requests_per_hour = 1000
+
+# Abuse detection thresholds
+block_duration_minutes = 30
+
+# Patterns to detect suspicious activity
+suspicious_keywords = ["spam", "test", "fake", "bot", "attack"]
+suspicious_user_agents = ["bot", "crawler", "scanner", "spider", "attack"]
+
+# Advanced settings
+[plugin.config.advanced]
+# Enable detailed logging
+debug_logging = false
+
+# Whitelist of IPs that bypass rate limiting
+ip_whitelist = ["127.0.0.1", "::1"]
+
+# Custom blocking rules
+[plugin.config.rules]
+# Block requests with these exact paths
+blocked_paths = ["/admin", "/wp-admin", "/.env"]
+
+# Block requests with these extensions
+blocked_extensions = [".php", ".asp", ".jsp"]
